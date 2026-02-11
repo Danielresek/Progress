@@ -1,0 +1,18 @@
+# .NET
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+**/*.suo
+
+# Logs
+**/*.log
+
+# Node (kommer senere)
+**/node_modules/
+**/dist/
+**/.vite/
+
+# Env (kommer senere)
+.env
+.env.*
