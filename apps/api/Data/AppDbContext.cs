@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WorkoutApp.Models;
 
 namespace WorkoutApp.Data;
 
@@ -8,4 +9,6 @@ public class AppDbContext : DbContext
         : base(options)
     {
     }
+
+    public DbSet<Workout> Workouts => Set<Workout>();
 }
