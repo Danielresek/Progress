@@ -30,8 +30,8 @@ export default function ProtectedRoute({ children }: Props) {
           />
 
           <div className="mt-10 space-y-4">
-            <h1 className="text-2xl font-bold">Start your Progress</h1>
-            <p className="text-neutral-300">Log in to continue your training</p>
+            <h1 className="text-2xl font-bold">Take your workout to the next level</h1>
+            <p className="text-neutral-300">Log in to track your progress</p>
 
             <button
               onClick={() => {
