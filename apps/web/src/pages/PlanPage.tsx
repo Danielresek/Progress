@@ -1,54 +1,176 @@
-import { useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 
-type Day = { id: string; name: string; focus?: string };
+type Plan = {
+  name: string;
+  days: string[];
+};
+
+const PLAN_KEY = "workouttracker.plan.v1";
+const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
+const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1";
+
+function getDayKey(dayId: number) {
+  return `workouttracker.plan.day.${dayId}.v1`;
+}
+
+function getRunKey(dayId: number) {
+  return `workouttracker.run.day.${dayId}.v1`;
+}
 
 export default function PlanPage() {
-  const [days, setDays] = useState<Day[]>([
-    { id: "1", name: "Økt 1", focus: "Push" },
-    { id: "2", name: "Økt 2", focus: "Pull" },
-    { id: "3", name: "Økt 3", focus: "Legs" },
-  ]);
+  const [plan, setPlan] = useState<Plan | null>(null);
 
-  const addDay = () => {
-    const next = days.length + 1;
-    setDays([...days, { id: String(next), name: `Økt ${next}` }]);
+  // form state
+  const [planName, setPlanName] = useState("");
+  const [dayCount, setDayCount] = useState(3);
+
+  const dayOptions = useMemo(() => [2, 3, 4, 5, 6], []);
+
+  // Last inn plan fra localStorage ved oppstart
+  useEffect(() => {
+    const raw = localStorage.getItem(PLAN_KEY);
+    if (!raw) return;
+
+    try {
+      const parsed: Plan = JSON.parse(raw);
+      if (parsed?.name && Array.isArray(parsed.days)) {
+        setPlan(parsed);
+      }
+    } catch {
+    }
+  }, []);
+
+  // Lagre plan til localStorage når plan endrer seg
+  useEffect(() => {
+    if (!plan) return;
+    localStorage.setItem(PLAN_KEY, JSON.stringify(plan));
+  }, [plan]);
+
+  const createPlan = () => {
+    const name = planName.trim() || "Min treningsplan";
+
+    setPlan({
+      name,
+      days: Array.from({ length: dayCount }, (_, i) => `Økt ${i + 1}`),
+    });
+
+    // Når man oppretter ny plan: start sekvens fra 1
+    localStorage.setItem(CURRENT_DAY_KEY, "1");
+    localStorage.removeItem(PLAN_COMPLETE_KEY);
   };
 
+  const resetPlan = () => {
+    const ok = window.confirm(
+      "Dette vil slette planen og alle økter/øvelser. Er du sikker?"
+    );
+    if (!ok) return;
+
+    const daysCount = plan?.days?.length ?? 0;
+
+    // Slett selve planen
+    localStorage.removeItem(PLAN_KEY);
+
+    // Slett alle øvelser pr økt
+    for (let i = 1; i <= daysCount; i++) {
+      localStorage.removeItem(getDayKey(i));
+    }
+
+    // Slett run-state pr økt
+    for (let i = 1; i <= daysCount; i++) {
+      localStorage.removeItem(getRunKey(i));
+    }
+
+    // Slett today-sekvens + fullført-flagget
+    localStorage.removeItem(CURRENT_DAY_KEY);
+    localStorage.removeItem(PLAN_COMPLETE_KEY);
+
+    // Reset state/UI
+    setPlan(null);
+    setPlanName("");
+    setDayCount(3);
+  };
+
+  if (!plan) {
+    return (
+      <div className="space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">Plan</h1>
+          <p className="text-neutral-400 text-sm">
+            Opprett en aktiv plan for å komme i gang.
+          </p>
+        </header>
+
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm text-neutral-300">Navn på plan</label>
+            <input
+              value={planName}
+              onChange={(e) => setPlanName(e.target.value)}
+              placeholder="Min treningsplan"
+              className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm text-neutral-300">Antall økter</label>
+            <div className="grid grid-cols-5 gap-2">
+              {dayOptions.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setDayCount(n)}
+                  className={[
+                    "rounded-xl py-3 text-sm font-semibold border transition active:scale-[0.99]",
+                    n === dayCount
+                      ? "bg-white text-black border-white"
+                      : "bg-neutral-950 text-neutral-200 border-neutral-800",
+                  ].join(" ")}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={createPlan}
+            className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
+          >
+            Opprett plan
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">Plan</h1>
-        <p className="text-neutral-400 text-sm">
-          Bygg økter og legg til øvelser (mock).
-        </p>
+    <div className="space-y-6">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Aktiv plan</h1>
+
+        <button onClick={resetPlan} className="text-sm text-neutral-300 underline">
+          Reset plan
+        </button>
       </header>
 
-      <div className="space-y-3">
-        {days.map((d) => (
-          <button
-            key={d.id}
-            className="w-full text-left rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 active:scale-[0.99]"
-          >
-            <div className="flex items-center justify-between">
-              <div className="text-lg font-semibold">{d.name}</div>
-              <span className="text-xs rounded-full border border-neutral-700 px-3 py-1 text-neutral-300">
-                {d.focus ?? "Uten fokus"}
-              </span>
-            </div>
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
+        <div>
+          <div className="text-sm text-neutral-400">Navn</div>
+          <div className="text-lg font-semibold">{plan.name}</div>
+        </div>
 
-            <div className="mt-2 text-sm text-neutral-400">
-              Trykk for å åpne og legge til øvelser.
-            </div>
-          </button>
-        ))}
+        <div className="space-y-2">
+          {plan.days.map((day, index) => (
+            <Link
+              key={`${day}-${index}`}
+              to={`/plan/day/${index + 1}`}
+              className="block w-full text-left rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 active:scale-[0.99]"
+            >
+              {day}
+            </Link>
+          ))}
+        </div>
       </div>
-
-      <button
-        onClick={addDay}
-        className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
-      >
-        Legg til ny økt
-      </button>
     </div>
   );
 }
