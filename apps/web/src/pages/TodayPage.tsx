@@ -17,6 +17,7 @@ type DayExercise = {
 const PLAN_KEY = "workouttracker.plan.v1";
 const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
 const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1";
+const WEEK_DONE_KEY = "workouttracker.weekJustCompleted.v1";
 
 function getDayKey(dayId: number) {
   return `workouttracker.plan.day.${dayId}.v1`;
@@ -29,6 +30,16 @@ export default function TodayPage() {
   const [dayId, setDayId] = useState<number>(1);
   const [dayItems, setDayItems] = useState<DayExercise[]>([]);
   const [planComplete, setPlanComplete] = useState<boolean>(false);
+  const [weekJustCompleted, setWeekJustCompleted] = useState(false);
+
+  // Vis "Uka er fullført!"-melding hvis vi nettopp har fullført uka
+  useEffect(() => {
+    const raw = localStorage.getItem(WEEK_DONE_KEY);
+    if (raw === "1") {
+      setWeekJustCompleted(true);
+      localStorage.removeItem(WEEK_DONE_KEY);
+    }
+  }, []);
 
   // 1) Les aktiv plan
   useEffect(() => {
@@ -110,6 +121,11 @@ export default function TodayPage() {
     if (!plan?.days?.length) return `Økt ${dayId}`;
     return plan.days[dayId - 1] ?? `Økt ${dayId}`;
   }, [plan, dayId]);
+
+  const firstDayTitle = useMemo(() => {
+  if (!plan?.days?.length) return "Økt 1";
+  return plan.days[0] ?? "Økt 1";
+}, [plan]);
 
   // Reset plan (start på nytt)
   const restartPlan = () => {
@@ -196,6 +212,12 @@ export default function TodayPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-bold">Today</h1>
         <p className="text-neutral-400 text-sm">Neste økt i planen din.</p>
+        {weekJustCompleted && (
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-3 text-sm text-neutral-200">
+            <span className="font-semibold">Uke fullført 🎉</span>{" "}
+            Starter på <span className="font-semibold">{firstDayTitle}</span> igjen.
+          </div>
+        )}
       </header>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">

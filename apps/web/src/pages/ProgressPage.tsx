@@ -1,54 +1,372 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { EXERCISES } from "../data/exercises";
 
-type Entry = { date: string; weight: number; reps: number };
-
-const MOCK: Record<string, Entry[]> = {
-  Benkpress: [
-    { date: "2026-02-01", weight: 80, reps: 8 },
-    { date: "2026-02-08", weight: 82.5, reps: 8 },
-    { date: "2026-02-15", weight: 85, reps: 7 },
-  ],
-  "Skulderpress": [
-    { date: "2026-02-03", weight: 30, reps: 10 },
-    { date: "2026-02-10", weight: 32.5, reps: 9 },
-  ],
-  "Triceps pushdown": [
-    { date: "2026-02-04", weight: 45, reps: 12 },
-    { date: "2026-02-11", weight: 47.5, reps: 11 },
-  ],
+type LogEntry = {
+  dayId: number;
+  exerciseId: string;
+  performedWeight: number;
+  performedReps: number;
+  timestamp: number;
 };
 
-export default function ProgressPage() {
-  const exercises = useMemo(() => Object.keys(MOCK), []);
-  const [selected, setSelected] = useState(exercises[0]);
+const LOG_KEY = "workouttracker.logs.v1";
 
-  const entries = MOCK[selected] ?? [];
+function readLogs(): LogEntry[] {
+  const raw = localStorage.getItem(LOG_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as LogEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatDate(ts: number) {
+  try {
+    return new Intl.DateTimeFormat("no-NO", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(ts));
+  } catch {
+    return new Date(ts).toLocaleDateString();
+  }
+}
+
+/** enkel sparkline uten libs */
+function Sparkline({
+  values,
+  width = 220,
+  height = 44,
+}: {
+  values: number[];
+  width?: number;
+  height?: number;
+}) {
+  const cleaned = values.filter((v) => Number.isFinite(v));
+  if (cleaned.length < 2) {
+    return (
+      <div className="h-11 rounded-xl bg-neutral-950/60 border border-neutral-800 flex items-center justify-center text-xs text-neutral-500">
+        Ikke nok data for graf
+      </div>
+    );
+  }
+
+  const minV = Math.min(...cleaned);
+  const maxV = Math.max(...cleaned);
+  const range = maxV - minV || 1;
+
+  const pad = 6;
+  const w = width;
+  const h = height;
+
+  const points = cleaned.map((v, i) => {
+    const x = pad + (i * (w - pad * 2)) / (cleaned.length - 1);
+    const y = pad + (h - pad * 2) * (1 - (v - minV) / range);
+    return { x, y };
+  });
+
+  const d = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+    .join(" ");
+
+  const last = points[points.length - 1];
+
+  return (
+    <div className="rounded-xl bg-neutral-950/60 border border-neutral-800 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs uppercase tracking-wider text-neutral-500">
+          Trend (kg)
+        </div>
+        <div className="text-xs text-neutral-600">
+          {minV.toFixed(0)}–{maxV.toFixed(0)}
+        </div>
+      </div>
+
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} className="block">
+        <path
+          d={d}
+          fill="none"
+          stroke="currentColor"
+          className="text-neutral-300"
+          strokeWidth="2"
+        />
+        <circle cx={last.x} cy={last.y} r="3.5" className="fill-white" />
+      </svg>
+    </div>
+  );
+}
+
+export default function ProgressPage() {
+  // ✅ logs i state (så vi kan resette uten reload)
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  useEffect(() => {
+    setLogs(readLogs());
+  }, []);
+
+  // map id -> navn
+  const exerciseNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of EXERCISES) map.set(e.id, e.name);
+    return map;
+  }, []);
+
+  const allLogs = useMemo(() => {
+    return logs
+      .filter(
+        (x) =>
+          x &&
+          typeof x.exerciseId === "string" &&
+          typeof x.performedWeight === "number" &&
+          typeof x.performedReps === "number" &&
+          typeof x.timestamp === "number"
+      )
+      .map((x) => ({
+        ...x,
+        performedWeight: Number.isFinite(x.performedWeight) ? x.performedWeight : 0,
+        performedReps: Number.isFinite(x.performedReps) ? x.performedReps : 0,
+      }))
+      .filter((x) => x.exerciseId.length > 0);
+  }, [logs]);
+
+  const exercisesWithLogs = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of allLogs) set.add(l.exerciseId);
+
+    const arr = Array.from(set).map((id) => ({
+      id,
+      name: exerciseNameById.get(id) ?? id,
+    }));
+
+    arr.sort((a, b) => a.name.localeCompare(b.name, "no"));
+    return arr;
+  }, [allLogs, exerciseNameById]);
+
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
+
+  // sørg for gyldig selected når logs lastes / endres
+  useEffect(() => {
+    if (!exercisesWithLogs.length) return;
+    setSelectedExerciseId((prev) => {
+      const exists = exercisesWithLogs.some((x) => x.id === prev);
+      return exists ? prev : exercisesWithLogs[0].id;
+    });
+  }, [exercisesWithLogs]);
+
+  const safeSelected = useMemo(() => {
+    if (!exercisesWithLogs.length) return "";
+    const exists = exercisesWithLogs.some((x) => x.id === selectedExerciseId);
+    return exists ? selectedExerciseId : exercisesWithLogs[0].id;
+  }, [exercisesWithLogs, selectedExerciseId]);
+
+  const selectedName =
+    exercisesWithLogs.find((x) => x.id === safeSelected)?.name ?? "Øvelse";
+
+  const entries = useMemo(() => {
+    return allLogs
+      .filter((l) => l.exerciseId === safeSelected)
+      .slice()
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }, [allLogs, safeSelected]);
+
+  const stats = useMemo(() => {
+    if (!entries.length) {
+      return {
+        total: 0,
+        bestWeight: 0,
+        bestReps: 0,
+        bestSet: 0,
+        lastDate: "",
+      };
+    }
+
+    let bestWeight = 0;
+    let bestReps = 0;
+    let bestSet = 0;
+
+    for (const e of entries) {
+      bestWeight = Math.max(bestWeight, e.performedWeight);
+      bestReps = Math.max(bestReps, e.performedReps);
+      bestSet = Math.max(bestSet, e.performedWeight * e.performedReps);
+    }
+
+    return {
+      total: entries.length,
+      bestWeight,
+      bestReps,
+      bestSet,
+      lastDate: formatDate(entries[0].timestamp),
+    };
+  }, [entries]);
+
+  const trendValues = useMemo(() => {
+    const lastN = entries.slice(0, 12).slice().reverse();
+    return lastN.map((x) => x.performedWeight);
+  }, [entries]);
+
+  const resetLogs = () => {
+    const ok = window.confirm(
+      "Dette sletter all historikk og PR-data. Kan ikke angres.\n\nVil du fortsette?"
+    );
+    if (!ok) return;
+
+    localStorage.removeItem(LOG_KEY);
+    setLogs([]);
+    setSelectedExerciseId("");
+  };
+
+  // Tom state: ingen logging i det hele tatt
+  if (!allLogs.length) {
+    return (
+      <div className="space-y-4">
+        <header className="flex items-start justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold">Progress</h1>
+            <p className="text-neutral-400 text-sm">
+              Når du har fullført en økt i Today, dukker historikken opp her.
+            </p>
+          </div>
+
+          <button
+            onClick={resetLogs}
+            className="text-xs underline underline-offset-4 text-neutral-600 hover:text-neutral-300"
+          >
+            Reset data
+          </button>
+        </header>
+
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
+          <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-4 text-neutral-300 text-sm">
+            Ingen logg enda. Start en økt i{" "}
+            <span className="font-semibold text-white">Today</span> og trykk
+            “Lagre og neste” for å lage første entry.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // logs finnes, men selected er tom av en eller annen grunn
+  if (!safeSelected) {
+    return (
+      <div className="space-y-4">
+        <header className="flex items-start justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold">Progress</h1>
+            <p className="text-neutral-400 text-sm">
+              Fant logger, men ingen øvelse å velge.
+            </p>
+          </div>
+
+          <button
+            onClick={resetLogs}
+            className="text-xs underline underline-offset-4 text-neutral-600 hover:text-neutral-300"
+          >
+            Reset data
+          </button>
+        </header>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">Progress</h1>
-        <p className="text-neutral-400 text-sm">
-          Velg øvelse for å se historikk (mock).
-        </p>
+      <header className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold">Progress</h1>
+          <p className="text-neutral-400 text-sm">
+            Velg øvelse for å se PR og historikk.
+          </p>
+        </div>
+
+        <button
+          onClick={resetLogs}
+          className="text-xs underline underline-offset-4 text-neutral-500 hover:text-neutral-300"
+        >
+          Reset data
+        </button>
       </header>
 
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
-        <div className="text-sm text-neutral-400">Øvelse</div>
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-3 text-white"
-        >
-          {exercises.map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </select>
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
+        {/* Velg øvelse */}
+        <div className="space-y-2">
+          <div className="text-sm text-neutral-400">Øvelse</div>
+          <select
+            value={safeSelected}
+            onChange={(e) => setSelectedExerciseId(e.target.value)}
+            className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-3 text-white"
+          >
+            {exercisesWithLogs.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
+        {/* PR Stats */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
+            <div className="text-xs uppercase tracking-wider text-neutral-500">
+              Beste vekt
+            </div>
+            <div className="text-2xl font-bold mt-1">
+              {stats.bestWeight.toFixed(0)}{" "}
+              <span className="text-neutral-400 text-base">kg</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
+            <div className="text-xs uppercase tracking-wider text-neutral-500">
+              Beste reps
+            </div>
+            <div className="text-2xl font-bold mt-1">{stats.bestReps.toFixed(0)}</div>
+          </div>
+
+          <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
+            <div className="text-xs uppercase tracking-wider text-neutral-500">
+              Beste volum-sett
+            </div>
+            <div className="text-lg font-semibold mt-1 text-neutral-100">
+              {stats.bestSet.toFixed(0)}{" "}
+              <span className="text-neutral-500 font-normal">kg×reps</span>
+            </div>
+            <div className="text-xs text-neutral-600 mt-1">
+              (tungeste enkelt-set)
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
+            <div className="text-xs uppercase tracking-wider text-neutral-500">
+              Totalt
+            </div>
+            <div className="text-lg font-semibold mt-1 text-neutral-100">
+              {stats.total}{" "}
+              <span className="text-neutral-500 font-normal">logger</span>
+            </div>
+            <div className="text-xs text-neutral-600 mt-1">
+              Sist: {stats.lastDate || "—"}
+            </div>
+          </div>
+        </div>
+
+        {/* Trend */}
+        <Sparkline values={trendValues} />
+
+        {/* Historikk */}
         <div className="pt-2 border-t border-neutral-800">
-          <div className="text-sm text-neutral-400 mb-2">Historikk</div>
+          <div className="flex items-end justify-between mb-2">
+            <div>
+              <div className="text-sm text-neutral-300 font-semibold">Historikk</div>
+              <div className="text-xs text-neutral-500">{selectedName}</div>
+            </div>
+
+            <div className="text-xs text-neutral-600">
+              Viser {Math.min(entries.length, 20)} av {entries.length}
+            </div>
+          </div>
 
           {entries.length === 0 ? (
             <div className="text-neutral-400 text-sm">
@@ -56,22 +374,57 @@ export default function ProgressPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {entries
-                .slice()
-                .reverse()
-                .map((e) => (
+              {entries.slice(0, 20).map((e, idx) => {
+                const vol = e.performedWeight * e.performedReps;
+
+                const isBestWeight =
+                  e.performedWeight === stats.bestWeight && stats.bestWeight > 0;
+                const isBestReps =
+                  e.performedReps === stats.bestReps && stats.bestReps > 0;
+
+                return (
                   <div
-                    key={e.date + e.weight + e.reps}
-                    className="flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-3"
+                    key={e.timestamp + ":" + idx}
+                    className="rounded-2xl border border-neutral-800 bg-neutral-950/60 px-4 py-3"
                   >
-                    <div className="text-sm text-neutral-300">{e.date}</div>
-                    <div className="text-sm font-semibold">
-                      {e.weight} kg × {e.reps}
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-neutral-300">
+                        {formatDate(e.timestamp)}
+                      </div>
+                      <div className="text-sm font-semibold">
+                        {e.performedWeight.toFixed(0)} kg ×{" "}
+                        {e.performedReps.toFixed(0)}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="text-xs text-neutral-600">
+                        Volum: {Number.isFinite(vol) ? vol.toFixed(0) : "0"}
+                      </div>
+
+                      <div className="flex gap-2">
+                        {isBestWeight && (
+                          <span className="text-xs px-2 py-1 rounded-full border border-neutral-700 text-neutral-200">
+                            PR vekt
+                          </span>
+                        )}
+                        {isBestReps && (
+                          <span className="text-xs px-2 py-1 rounded-full border border-neutral-700 text-neutral-200">
+                            PR reps
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                ))}
+                );
+              })}
             </div>
           )}
+
+          <div className="mt-3 text-xs text-neutral-600">
+            Tips: PR set måles som{" "}
+            <span className="text-neutral-400">kg × reps</span> på ett logget sett.
+          </div>
         </div>
       </div>
     </div>

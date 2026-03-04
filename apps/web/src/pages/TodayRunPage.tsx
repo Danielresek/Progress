@@ -25,6 +25,7 @@ type LogEntry = {
 const PLAN_KEY = "workouttracker.plan.v1";
 const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
 const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1";
+const LOG_KEY = "workouttracker.logs.v1";
 
 function getDayKey(dayId: number) {
   return `workouttracker.plan.day.${dayId}.v1`;
@@ -35,7 +36,7 @@ function getRunKey(dayId: number) {
 }
 
 function getLogKey() {
-  return "workouttracker.logs.v1";
+  return LOG_KEY;
 }
 
 export default function TodayRunPage() {
@@ -110,6 +111,31 @@ export default function TodayRunPage() {
 
   const current = useMemo(() => items[index] ?? null, [items, index]);
 
+  // Hent siste logg for øvelsen (på tvers av økter/uker)
+  const getLastForExercise = (exerciseId: string) => {
+    const raw = localStorage.getItem(getLogKey());
+    if (!raw) return null;
+
+    try {
+      const logs = JSON.parse(raw) as LogEntry[];
+      if (!Array.isArray(logs)) return null;
+
+      const last = logs
+        .filter((l) => l.exerciseId === exerciseId)
+        .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+      return last ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const last = useMemo(() => {
+    if (!current) return null;
+    return getLastForExercise(current.exerciseId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.exerciseId]);
+
   const saveAndNext = () => {
     if (!current) return;
 
@@ -159,7 +185,7 @@ export default function TodayRunPage() {
     setReps("");
   };
 
-  // ✅ Lagre og lukk: flytt sekvensen til neste økt (eller markér plan fullført) og gå tilbake til Today
+  // Lagre og lukk: flytt sekvensen til neste økt (eller markér plan fullført) og gå tilbake til Today
   const saveAndClose = () => {
     const totalDays = plan?.days?.length ?? 0;
 
@@ -175,16 +201,18 @@ export default function TodayRunPage() {
     const nextDay = dayId + 1;
 
     if (nextDay > totalDays) {
-      // siste økt fullført
-      localStorage.setItem(PLAN_COMPLETE_KEY, "1");
-      // valgfritt: sette current tilbake til 1, men ofte greit å la den stå
-      // localStorage.setItem(CURRENT_DAY_KEY, "1");
-    } else {
-      localStorage.setItem(CURRENT_DAY_KEY, String(nextDay));
-      localStorage.removeItem(PLAN_COMPLETE_KEY); // bare for sikkerhets skyld
-    }
+    // LOOP: ny uke starter
+    localStorage.setItem(CURRENT_DAY_KEY, "1");
+    localStorage.removeItem(PLAN_COMPLETE_KEY);
 
-    navigate("/today");
+    // valgfritt: flagg for en "uke fullført" toast på Today
+    localStorage.setItem("workouttracker.weekJustCompleted.v1", "1");
+  } else {
+    localStorage.setItem(CURRENT_DAY_KEY, String(nextDay));
+    localStorage.removeItem(PLAN_COMPLETE_KEY);
+  }
+
+  navigate("/today");
   };
 
   if (!items.length) {
@@ -207,7 +235,7 @@ export default function TodayRunPage() {
     );
   }
 
-  // ✅ ferdig med økta
+  // ferdig med økta
   if (index >= items.length) {
     return (
       <div className="space-y-4">
@@ -268,9 +296,13 @@ export default function TodayRunPage() {
               {current?.sets} x {current?.reps}
             </span>
           </div>
+
+          {/* Bytter ut "Start kg" med "Sist" */}
           <div className="flex justify-between">
-            <span className="text-neutral-400">Start kg</span>
-            <span>{current?.startWeight || 0} kg</span>
+            <span className="text-neutral-400">Sist</span>
+            <span>
+              {last ? `${last.performedWeight || 0} kg × ${last.performedReps || 0}` : "—"}
+            </span>
           </div>
         </div>
 
