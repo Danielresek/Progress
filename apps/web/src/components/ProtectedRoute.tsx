@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useLocation } from "react-router-dom";
+import logo from "../assets/logo.svg";
 
 type Props = { children: ReactNode };
 
@@ -9,7 +10,11 @@ export default function ProtectedRoute({ children }: Props) {
   const location = useLocation();
 
   if (isLoading) {
-    return <div className="p-4 text-neutral-300">Laster…</div>;
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6">
+        <div className="text-neutral-300">Laster…</div>
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
@@ -17,25 +22,33 @@ export default function ProtectedRoute({ children }: Props) {
 
     return (
       <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6">
-        <div className="w-full max-w-md space-y-4">
-          <h1 className="text-2xl font-bold">Workout Tracker 💪</h1>
-          <p className="text-neutral-300">Logg inn for å bruke appen.</p>
+        <div className="w-full max-w-md text-center">
+          <img
+            src={logo}
+            alt="Progress"
+            className="h-24 w-auto mx-auto opacity-95 select-none"
+          />
 
-          <button
-            onClick={() => {
-              sessionStorage.setItem("wt.returnTo", returnTo);
+          <div className="mt-10 space-y-4">
+            <h1 className="text-2xl font-bold">Start your Progress</h1>
+            <p className="text-neutral-300">Log in to continue your training</p>
 
-              loginWithRedirect({
-                appState: { returnTo },
-                authorizationParams: {
-                  redirect_uri: `${window.location.origin}/callback`,
-                },
-              });
-            }}
-            className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold"
-          >
-            Logg inn
-          </button>
+            <button
+              onClick={() => {
+                sessionStorage.setItem("wt.returnTo", returnTo);
+
+                loginWithRedirect({
+                  appState: { returnTo },
+                  authorizationParams: {
+                    redirect_uri: `${window.location.origin}/callback`,
+                  },
+                });
+              }}
+              className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
+            >
+              Log in
+            </button>
+          </div>
         </div>
       </div>
     );
