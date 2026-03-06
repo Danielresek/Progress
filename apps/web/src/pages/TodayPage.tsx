@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import confetti from "canvas-confetti";
 
 type Plan = {
   name: string;
@@ -18,6 +19,55 @@ const PLAN_KEY = "workouttracker.plan.v1";
 const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
 const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1";
 const WEEK_DONE_KEY = "workouttracker.weekJustCompleted.v1";
+
+// Weekly stats (v1)
+const WEEK_INDEX_KEY = "workouttracker.weekIndex.v1";
+const WEEKLY_STREAK_KEY = "workouttracker.weeklyStreak.v1";
+const WEEK_COMPLETIONS_KEY = "workouttracker.weekCompletions.v1";
+const LOG_KEY = "workouttracker.logs.v1";
+
+type WeekCompletion = {
+  weekIndex: number;
+  dayId: number;
+  completedAt: number;
+};
+
+type LogEntry = {
+  dayId: number;
+  exerciseId: string;
+  performedWeight: number;
+  performedReps: number;
+  timestamp: number;
+  weekIndex?: number;
+};
+
+function readNumberKey(key: string, fallback: number) {
+  const raw = localStorage.getItem(key);
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function readCompletions(): WeekCompletion[] {
+  const raw = localStorage.getItem(WEEK_COMPLETIONS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as WeekCompletion[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function readLogs(): LogEntry[] {
+  const raw = localStorage.getItem(LOG_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as LogEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 function getDayKey(dayId: number) {
   return `workouttracker.plan.day.${dayId}.v1`;
@@ -38,6 +88,12 @@ export default function TodayPage() {
     if (raw === "1") {
       setWeekJustCompleted(true);
       localStorage.removeItem(WEEK_DONE_KEY);
+
+      confetti({
+        particleCount: 140,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
     }
   }, []);
 
@@ -127,6 +183,85 @@ export default function TodayPage() {
   return plan.days[0] ?? "Økt 1";
 }, [plan]);
 
+  // Beregn ukesstatistikk
+  const weeklyStats = useMemo(() => {
+    const totalDays = plan?.days?.length ?? 0;
+
+    const weekIndex = readNumberKey(WEEK_INDEX_KEY, 1);
+    const streak = readNumberKey(WEEKLY_STREAK_KEY, 0);
+
+    const completionsThisWeek = readCompletions().filter(
+      (c) => c.weekIndex === weekIndex
+    );
+
+    const uniqueCompletedDays = new Set(completionsThisWeek.map((c) => c.dayId));
+    const completedCount = uniqueCompletedDays.size;
+    const remainingCount = Math.max(0, totalDays - completedCount);
+
+    const progressPct =
+      totalDays > 0 ? Math.round((completedCount / totalDays) * 100) : 0;
+
+    // PR denne uka: bruker samme PR-definisjon som ProgressPage:
+    // - PR vekt: beste performedWeight per øvelse
+    // - PR reps: beste performedReps per øvelse
+    // Teller hvor mange øvelser som fikk ny PR (vekt eller reps) i perioden "denne uka"
+    const logs = readLogs();
+
+    const logsThisWeek = logs.filter((l) => l.weekIndex === weekIndex);
+
+    // best all time per øvelse (vekt og reps)
+    const bestWeightByExercise = new Map<string, { value: number; week: number }>();
+    const bestRepsByExercise = new Map<string, { value: number; week: number }>();
+
+    for (const l of logs) {
+      // weight
+      const prevW = bestWeightByExercise.get(l.exerciseId);
+      if (!prevW || l.performedWeight > prevW.value) {
+        bestWeightByExercise.set(l.exerciseId, {
+          value: l.performedWeight,
+          week: l.weekIndex ?? -1,
+        });
+      }
+
+      // reps
+      const prevR = bestRepsByExercise.get(l.exerciseId);
+      if (!prevR || l.performedReps > prevR.value) {
+        bestRepsByExercise.set(l.exerciseId, {
+          value: l.performedReps,
+          week: l.weekIndex ?? -1,
+        });
+      }
+    }
+
+    // teller “PR denne uka” = øvelser der PR (vekt eller reps) har week === weekIndex
+    let prCountThisWeek = 0;
+
+    const exercises = new Set<string>([
+      ...bestWeightByExercise.keys(),
+      ...bestRepsByExercise.keys(),
+    ]);
+
+    for (const exId of exercises) {
+      const w = bestWeightByExercise.get(exId);
+      const r = bestRepsByExercise.get(exId);
+
+      const weightPRThisWeek = w ? w.week === weekIndex : false;
+      const repsPRThisWeek = r ? r.week === weekIndex : false;
+
+      if (weightPRThisWeek || repsPRThisWeek) prCountThisWeek += 1;
+    }
+
+    return {
+      weekIndex,
+      streak,
+      totalDays,
+      completedCount,
+      remainingCount,
+      progressPct,
+      prCountThisWeek,
+    };
+  }, [plan]);
+
   // Reset plan (start på nytt)
   const restartPlan = () => {
     const ok = window.confirm(
@@ -136,6 +271,11 @@ export default function TodayPage() {
 
     localStorage.setItem(CURRENT_DAY_KEY, "1");
     localStorage.removeItem(PLAN_COMPLETE_KEY);
+
+    // Weekly stats reset
+    localStorage.setItem(WEEK_INDEX_KEY, "1");
+    localStorage.setItem(WEEKLY_STREAK_KEY, "0");
+    localStorage.removeItem(WEEK_COMPLETIONS_KEY);
 
     // Fjern run-state for alle økter
     if (plan?.days?.length) {
@@ -219,6 +359,50 @@ export default function TodayPage() {
           </div>
         )}
       </header>
+
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm text-neutral-400">Weekly stats</div>
+          <div className="text-lg font-semibold">Uke {weeklyStats.weekIndex}</div>
+        </div>
+
+        <div className="text-sm text-neutral-300">
+          Streak: <span className="font-semibold">{weeklyStats.streak}</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-neutral-400">Fullført</span>
+          <span className="text-neutral-200 font-semibold">
+            {weeklyStats.completedCount} / {weeklyStats.totalDays}
+          </span>
+        </div>
+
+        <div className="w-full h-2 rounded-full bg-neutral-800 overflow-hidden">
+          <div
+            className="h-2 bg-white"
+            style={{ width: `${weeklyStats.progressPct}%` }}
+          />
+        </div>
+
+        <div className="flex justify-between text-sm">
+          <span className="text-neutral-400">Gjenstår</span>
+          <span className="text-neutral-200 font-semibold">
+            {weeklyStats.remainingCount}
+          </span>
+        </div>
+
+        {/* <div className="flex justify-between text-sm">
+          <span className="text-neutral-400">PR denne uka</span>
+          <span className="text-neutral-200 font-semibold">
+            {weeklyStats.prCountThisWeek}
+          </span>
+        </div> */}
+
+      </div>
+    </div>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
         {/* Økt header */}

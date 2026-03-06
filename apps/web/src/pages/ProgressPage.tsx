@@ -7,6 +7,7 @@ type LogEntry = {
   performedWeight: number;
   performedReps: number;
   timestamp: number;
+  weekIndex?: number;
 };
 
 const LOG_KEY = "workouttracker.logs.v1";
@@ -32,6 +33,12 @@ function formatDate(ts: number) {
   } catch {
     return new Date(ts).toLocaleDateString();
   }
+}
+
+function volume(weight: number, reps: number) {
+  if (!Number.isFinite(weight) || !Number.isFinite(reps)) return 0;
+  if (weight <= 0 || reps <= 0) return 0;
+  return weight * reps;
 }
 
 /** enkel sparkline uten libs */
@@ -99,8 +106,8 @@ function Sparkline({
 }
 
 export default function ProgressPage() {
-  // ✅ logs i state (så vi kan resette uten reload)
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
 
   useEffect(() => {
     setLogs(readLogs());
@@ -144,8 +151,6 @@ export default function ProgressPage() {
     return arr;
   }, [allLogs, exerciseNameById]);
 
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
-
   // sørg for gyldig selected når logs lastes / endres
   useEffect(() => {
     if (!exercisesWithLogs.length) return;
@@ -171,35 +176,107 @@ export default function ProgressPage() {
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [allLogs, safeSelected]);
 
+  // ✅ PR-flags: viser PR kun på loggen som faktisk satte ny rekord
+  const prFlags = useMemo(() => {
+    const chronological = entries
+      .slice()
+      .sort((a, b) => a.timestamp - b.timestamp); // eldste -> nyeste
+
+    let bestW = 0;
+    let bestR = 0;
+
+    const prWeightTs = new Set<number>();
+    const prRepsTs = new Set<number>();
+
+    for (const e of chronological) {
+      if (e.performedWeight > bestW) {
+        bestW = e.performedWeight;
+        prWeightTs.add(e.timestamp);
+      }
+      if (e.performedReps > bestR) {
+        bestR = e.performedReps;
+        prRepsTs.add(e.timestamp);
+      }
+    }
+
+    return { prWeightTs, prRepsTs };
+  }, [entries]);
+
   const stats = useMemo(() => {
     if (!entries.length) {
       return {
         total: 0,
         bestWeight: 0,
         bestReps: 0,
-        bestSet: 0,
         lastDate: "",
       };
     }
 
     let bestWeight = 0;
     let bestReps = 0;
-    let bestSet = 0;
 
     for (const e of entries) {
       bestWeight = Math.max(bestWeight, e.performedWeight);
       bestReps = Math.max(bestReps, e.performedReps);
-      bestSet = Math.max(bestSet, e.performedWeight * e.performedReps);
     }
 
     return {
       total: entries.length,
       bestWeight,
       bestReps,
-      bestSet,
       lastDate: formatDate(entries[0].timestamp),
     };
   }, [entries]);
+
+  const strengthScore = useMemo(() => {
+  // 1) Best volum-sett per øvelse (all time)
+  const bestAllTime = new Map<string, number>();
+  for (const l of allLogs) {
+    const v = volume(l.performedWeight, l.performedReps);
+    const prev = bestAllTime.get(l.exerciseId) ?? 0;
+    if (v > prev) bestAllTime.set(l.exerciseId, v);
+  }
+  const allTimeScore = Array.from(bestAllTime.values()).reduce((a, b) => a + b, 0);
+
+  // 2) Finn siste app-uke fra loggene (ikke kalenderuke)
+  const weeks = allLogs
+    .map((l) => l.weekIndex)
+    .filter((w): w is number => typeof w === "number" && Number.isFinite(w));
+
+  // Hvis vi ikke har weekIndex på logger enda, faller vi tilbake til "første uke"
+  const latestWeek = weeks.length > 0 ? Math.max(...weeks) : 1;
+  const prevWeek = latestWeek - 1;
+
+  // 3) Best volum-sett per øvelse (denne uke / forrige uke)
+  const bestThisWeek = new Map<string, number>();
+  const bestLastWeek = new Map<string, number>();
+
+  for (const l of allLogs) {
+    const v = volume(l.performedWeight, l.performedReps);
+
+    if ((l.weekIndex ?? -999) === latestWeek) {
+      const prev = bestThisWeek.get(l.exerciseId) ?? 0;
+      if (v > prev) bestThisWeek.set(l.exerciseId, v);
+    }
+
+    if ((l.weekIndex ?? -999) === prevWeek) {
+      const prev = bestLastWeek.get(l.exerciseId) ?? 0;
+      if (v > prev) bestLastWeek.set(l.exerciseId, v);
+    }
+  }
+
+  const thisWeekScore = Array.from(bestThisWeek.values()).reduce((a, b) => a + b, 0);
+  const lastWeekScore = Array.from(bestLastWeek.values()).reduce((a, b) => a + b, 0);
+  const delta = thisWeekScore - lastWeekScore;
+
+  return {
+    allTimeScore,
+    thisWeekScore,
+    lastWeekScore,
+    delta,
+    latestWeek,
+  };
+}, [allLogs]);
 
   const trendValues = useMemo(() => {
     const lastN = entries.slice(0, 12).slice().reverse();
@@ -248,7 +325,6 @@ export default function ProgressPage() {
     );
   }
 
-  // logs finnes, men selected er tom av en eller annen grunn
   if (!safeSelected) {
     return (
       <div className="space-y-4">
@@ -306,7 +382,7 @@ export default function ProgressPage() {
           </select>
         </div>
 
-        {/* PR Stats */}
+        {/* Stats */}
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
             <div className="text-xs uppercase tracking-wider text-neutral-500">
@@ -327,15 +403,23 @@ export default function ProgressPage() {
 
           <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
             <div className="text-xs uppercase tracking-wider text-neutral-500">
-              Beste volum-sett
+              Strength score
             </div>
-            <div className="text-lg font-semibold mt-1 text-neutral-100">
-              {stats.bestSet.toFixed(0)}{" "}
-              <span className="text-neutral-500 font-normal">kg×reps</span>
+
+            <div className="text-2xl font-bold mt-1 text-neutral-100">
+              {strengthScore.allTimeScore.toFixed(0)}
             </div>
-            <div className="text-xs text-neutral-600 mt-1">
-              (tungeste enkelt-set)
-            </div>
+
+            {strengthScore.lastWeekScore > 0 ? (
+              <div className="text-xs text-neutral-600 mt-1">
+                {strengthScore.delta >= 0 ? "↑" : "↓"}{" "}
+                {Math.abs(strengthScore.delta).toFixed(0)} denne uka
+              </div>
+            ) : (
+              <div className="text-xs text-neutral-600 mt-1">
+                Første uke med data (uke {strengthScore.latestWeek})
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
@@ -377,10 +461,8 @@ export default function ProgressPage() {
               {entries.slice(0, 20).map((e, idx) => {
                 const vol = e.performedWeight * e.performedReps;
 
-                const isBestWeight =
-                  e.performedWeight === stats.bestWeight && stats.bestWeight > 0;
-                const isBestReps =
-                  e.performedReps === stats.bestReps && stats.bestReps > 0;
+                const isBestWeight = prFlags.prWeightTs.has(e.timestamp);
+                const isBestReps = prFlags.prRepsTs.has(e.timestamp);
 
                 return (
                   <div

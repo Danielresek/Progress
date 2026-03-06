@@ -20,6 +20,7 @@ type LogEntry = {
   performedWeight: number;
   performedReps: number;
   timestamp: number;
+  weekIndex: number;
 };
 
 const PLAN_KEY = "workouttracker.plan.v1";
@@ -27,6 +28,38 @@ const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
 const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1"; // vi bruker ikke dette lenger (men vi rydder det bort)
 const LOG_KEY = "workouttracker.logs.v1";
 const WEEK_DONE_KEY = "workouttracker.weekJustCompleted.v1";
+
+// Weekly stats (v1)
+const WEEK_INDEX_KEY = "workouttracker.weekIndex.v1";
+const WEEKLY_STREAK_KEY = "workouttracker.weeklyStreak.v1";
+const WEEK_COMPLETIONS_KEY = "workouttracker.weekCompletions.v1";
+
+type WeekCompletion = {
+  weekIndex: number;
+  dayId: number;
+  completedAt: number;
+};
+
+function readNumberKey(key: string, fallback: number) {
+  const raw = localStorage.getItem(key);
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function readCompletions(): WeekCompletion[] {
+  const raw = localStorage.getItem(WEEK_COMPLETIONS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as WeekCompletion[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCompletions(items: WeekCompletion[]) {
+  localStorage.setItem(WEEK_COMPLETIONS_KEY, JSON.stringify(items));
+}
 
 function getDayKey(dayId: number) {
   return `workouttracker.plan.day.${dayId}.v1`;
@@ -197,12 +230,15 @@ const bumpKg = (delta: number) => {
       return;
     }
 
+    const weekIndex = readNumberKey(WEEK_INDEX_KEY, 1);
+
     const entry: LogEntry = {
       dayId,
       exerciseId: current.exerciseId,
       performedWeight,
       performedReps,
       timestamp: Date.now(),
+      weekIndex,
     };
 
     const logs = readLogs();
@@ -241,6 +277,19 @@ const bumpKg = (delta: number) => {
     // rydd run-state for denne økta
     localStorage.removeItem(getRunKey(dayId));
 
+    // Weekly stats: registrer at denne økta ble fullført i aktiv uke
+    const weekIndex = readNumberKey(WEEK_INDEX_KEY, 1);
+
+    const completions = readCompletions();
+    const exists = completions.some(
+      (c) => c.weekIndex === weekIndex && c.dayId === dayId
+    );
+
+    if (!exists) {
+      completions.push({ weekIndex, dayId, completedAt: Date.now() });
+      writeCompletions(completions);
+    }
+
     // VIKTIG: sørg for at "plan complete"-visningen aldri trigger
     localStorage.removeItem(PLAN_COMPLETE_KEY);
 
@@ -255,6 +304,12 @@ const bumpKg = (delta: number) => {
       // LOOP: ny uke starter
       localStorage.setItem(CURRENT_DAY_KEY, "1");
       localStorage.setItem(WEEK_DONE_KEY, "1"); // toast på Today
+
+      const currentWeek = readNumberKey(WEEK_INDEX_KEY, 1);
+      localStorage.setItem(WEEK_INDEX_KEY, String(currentWeek + 1));
+
+      const streak = readNumberKey(WEEKLY_STREAK_KEY, 0);
+      localStorage.setItem(WEEKLY_STREAK_KEY, String(streak + 1));
     } else {
       localStorage.setItem(CURRENT_DAY_KEY, String(nextDay));
     }
