@@ -1,49 +1,43 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { EXERCISES, type Exercise } from "../data/exercises";
-
-type DayExercise = {
-  exerciseId: string;
-  name: string;
-  sets: number;
-  reps: number;
-  startWeight: number;
-};
-
-type Plan = {
-  name: string;
-  days: string[];
-};
-
-const PLAN_KEY = "workouttracker.plan.v1";
+import type { DayExercise, Plan } from "../types";
+import {
+  clearDayExercises,
+  getDayExercises,
+  getPlan,
+  saveDayExercises,
+  savePlan,
+} from "../storage/planStorage";
 
 export default function PlanDayPage() {
   const { dayId } = useParams();
 
   const dayNumber = Number(dayId || "1");
 
-  // Key for denne økta (1,2,3 osv)
-  const STORAGE_KEY = dayId ? `workouttracker.plan.day.${dayId}.v1` : null;
+  const hasDayId = Boolean(dayId);
 
   const [items, setItems] = useState<DayExercise[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
 
-  // ✅ Økt-navn
-  const [dayTitle, setDayTitle] = useState<string>(`Økt ${dayNumber}`);
+  // Workout title
+  const [dayTitle, setDayTitle] = useState<string>(`Workout ${dayNumber}`);
 
-  // for å unngå at setTimeout bygger seg opp
+  // Avoid stacking setTimeout calls
   const saveTimeoutRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Hjelpefunksjon: lagrer til localStorage
+  // Helper: persist to localStorage
   const persist = (next: DayExercise[]) => {
-    if (!STORAGE_KEY) return;
+    if (!hasDayId) return;
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    saveDayExercises(dayNumber, next);
 
-    // liten “lagrer/lagret” animasjon
+    // Small "saving/saved" indicator
     setSaveState("saving");
 
     if (saveTimeoutRef.current) {
@@ -55,67 +49,50 @@ export default function PlanDayPage() {
     }, 250);
   };
 
-  // Last inn økt-navn fra planen (workouttracker.plan.v1)
+  // Load workout title from the plan (workouttracker.plan.v1)
   useEffect(() => {
-    const raw = localStorage.getItem(PLAN_KEY);
-    if (!raw) {
-      setDayTitle(`Økt ${dayNumber}`);
+    const parsed = getPlan();
+    if (!parsed) {
+      setDayTitle(`Workout ${dayNumber}`);
       return;
     }
 
-    try {
-      const parsed = JSON.parse(raw) as Plan;
-      const title = parsed?.days?.[dayNumber - 1];
-      if (typeof title === "string" && title.trim()) {
-        setDayTitle(title);
-      } else {
-        setDayTitle(`Økt ${dayNumber}`);
-      }
-    } catch {
-      setDayTitle(`Økt ${dayNumber}`);
+    const title = parsed?.days?.[dayNumber - 1];
+    if (typeof title === "string" && title.trim()) {
+      setDayTitle(title);
+    } else {
+      setDayTitle(`Workout ${dayNumber}`);
     }
   }, [dayNumber]);
 
-  // Lagre økt-navn inn i plan.days[]
+  // Save workout title into plan.days[]
   const saveDayTitle = (nextTitle: string) => {
-    const raw = localStorage.getItem(PLAN_KEY);
-    if (!raw) return;
+    const parsed = getPlan();
+    if (!parsed?.days || !Array.isArray(parsed.days)) return;
 
-    try {
-      const parsed = JSON.parse(raw) as Plan;
-      if (!parsed?.days || !Array.isArray(parsed.days)) return;
+    const copy = [...parsed.days];
+    copy[dayNumber - 1] = nextTitle.trim() || `Workout ${dayNumber}`;
 
-      const copy = [...parsed.days];
-      copy[dayNumber - 1] = nextTitle.trim() || `Økt ${dayNumber}`;
-
-      const nextPlan: Plan = { ...parsed, days: copy };
-      localStorage.setItem(PLAN_KEY, JSON.stringify(nextPlan));
-    } catch {
-    }
+    const nextPlan: Plan = { ...parsed, days: copy };
+    savePlan(nextPlan);
   };
 
-  // Last inn fra localStorage når siden åpnes / dayId endres
+  // Load from localStorage when page opens / dayId changes
   useEffect(() => {
-    if (!STORAGE_KEY) return;
+    if (!hasDayId) return;
 
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
+    const parsed = getDayExercises(dayNumber);
+    if (!parsed.length) {
       setItems([]);
       setSaveState("idle");
       return;
     }
 
-    try {
-      const parsed = JSON.parse(raw);
-      setItems(Array.isArray(parsed) ? parsed : []);
-      setSaveState("idle");
-    } catch {
-      setItems([]);
-      setSaveState("idle");
-    }
-  }, [STORAGE_KEY]);
+    setItems(parsed);
+    setSaveState("idle");
+  }, [dayNumber, hasDayId]);
 
-  // Rydd opp timeout når komponenten unmountes
+  // Clean up timeout when component unmounts
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
@@ -129,13 +106,19 @@ export default function PlanDayPage() {
     searchInputRef.current?.focus();
   }, [pickerOpen]);
 
+  useEffect(() => {
+    if (!isEditingTitle) return;
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [isEditingTitle]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return EXERCISES;
     return EXERCISES.filter((e) => e.name.toLowerCase().includes(q));
   }, [query]);
 
-  // Legg til øvelse (med default sets/reps/startvekt)
+  // Add exercise (with default sets/reps/start weight)
   const addExercise = (e: Exercise) => {
     if (items.some((x) => x.exerciseId === e.id)) return;
 
@@ -157,33 +140,33 @@ export default function PlanDayPage() {
     setQuery("");
   };
 
-  // Oppdater sets/reps/startvekt for en øvelse
+  // Update sets/reps/start weight for an exercise
   const updateItem = (id: string, patch: Partial<DayExercise>) => {
     const next = items.map((x) => (x.exerciseId === id ? { ...x, ...patch } : x));
     setItems(next);
     persist(next);
   };
 
-  // Reset dag (slett alle øvelser)
+  // Reset day (delete all exercises)
   const resetDay = () => {
-    if (!STORAGE_KEY) return;
+    if (!hasDayId) return;
 
-    const ok = window.confirm("Vil du slette alle øvelser i denne økta?");
+    const ok = window.confirm("Do you want to delete all exercises in this workout?");
     if (!ok) return;
 
-    localStorage.removeItem(STORAGE_KEY);
+    clearDayExercises(dayNumber);
     setItems([]);
     setSaveState("idle");
   };
 
-  // Fjern øvelse
+  // Remove exercise
   const removeItem = (id: string) => {
     const next = items.filter((x) => x.exerciseId !== id);
     setItems(next);
     persist(next);
   };
 
-  // Flytt øvelse opp/ned
+  // Move exercise up/down
   const moveItem = (index: number, direction: "up" | "down") => {
     const newIndex = direction === "up" ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= items.length) return;
@@ -202,7 +185,7 @@ export default function PlanDayPage() {
       <header className="space-y-2">
         <div className="flex items-center justify-between">
           <Link to="/plan" className="text-sm text-neutral-400">
-            ← Tilbake
+            ← Back
           </Link>
 
           <button
@@ -215,27 +198,53 @@ export default function PlanDayPage() {
                 : "text-neutral-300",
             ].join(" ")}
           >
-            Reset økt
+            Reset workout
           </button>
         </div>
 
-        {/* Økt-navn (redigerbart) */}
-        <input
-          value={dayTitle}
-          onChange={(e) => setDayTitle(e.target.value)}
-          onBlur={() => saveDayTitle(dayTitle)}
-          placeholder={`Økt ${dayNumber}`}
-          className="w-full bg-transparent text-2xl font-bold outline-none"
-        />
+        {/* Workout title (editable) */}
+        {isEditingTitle ? (
+          <input
+            ref={titleInputRef}
+            value={dayTitle}
+            onChange={(e) => setDayTitle(e.target.value)}
+            onBlur={() => {
+              saveDayTitle(dayTitle);
+              setIsEditingTitle(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                saveDayTitle(dayTitle);
+                setIsEditingTitle(false);
+              }
+            }}
+            placeholder={`Workout ${dayNumber}`}
+            className="w-full bg-transparent text-2xl font-bold outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsEditingTitle(true)}
+            className="w-full rounded-xl px-2 py-2 -mx-2 text-left active:scale-[0.99]"
+            aria-label="Edit workout title"
+          >
+            <span className="inline-flex items-center gap-2">
+              <span className="text-2xl font-bold">{dayTitle}</span>
+              <span className="text-neutral-400 text-base" aria-hidden>
+                ✎
+              </span>
+            </span>
+          </button>
+        )}
 
         <p className="text-neutral-400 text-sm">
-          Legg til øvelser og sett sets/reps/startvekt (mock).
+          Add exercises and set sets/reps/start weight (mock).
         </p>
 
         {saveState !== "idle" && (
           <div className="text-xs text-neutral-500">
-            {saveState === "saving" && "Lagrer…"}
-            {saveState === "saved" && "Lagret ✅"}
+            {saveState === "saving" && "Saving..."}
+            {saveState === "saved" && "Saved ✅"}
           </div>
         )}
       </header>
@@ -243,7 +252,7 @@ export default function PlanDayPage() {
       {pickerOpen && (
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 backdrop-blur p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">Velg øvelse</div>
+            <div className="font-semibold">Select exercise</div>
             <button
               onClick={() => {
                 setPickerOpen(false);
@@ -251,7 +260,7 @@ export default function PlanDayPage() {
               }}
               className="text-sm text-neutral-300"
             >
-              Lukk
+              Close
             </button>
           </div>
 
@@ -259,7 +268,7 @@ export default function PlanDayPage() {
             ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Søk… (f.eks benk)"
+            placeholder="Search... (e.g. bench)"
             className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
           />
 
@@ -280,18 +289,18 @@ export default function PlanDayPage() {
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm text-neutral-400">Øvelser</div>
+          <div className="text-sm text-neutral-400">Exercises</div>
           <button
             onClick={() => setPickerOpen(true)}
             className="text-sm font-semibold rounded-xl bg-white text-black px-3 py-2 active:scale-[0.99]"
           >
-            + Legg til
+            + Add
           </button>
         </div>
 
         {items.length === 0 ? (
           <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-4 text-neutral-400 text-sm">
-            Ingen øvelser lagt til enda.
+            No exercises added yet.
           </div>
         ) : (
           <div className="space-y-3">
@@ -300,7 +309,7 @@ export default function PlanDayPage() {
                 key={x.exerciseId}
                 className="rounded-2xl bg-neutral-950 border border-neutral-800 p-4 space-y-3"
               >
-                {/* Navn til venstre, knapper til høyre */}
+                {/* Name on the left, controls on the right */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold">{x.name}</div>
 
@@ -317,8 +326,8 @@ export default function PlanDayPage() {
                           ? "text-neutral-700 cursor-not-allowed"
                           : "text-neutral-200 hover:bg-neutral-900",
                       ].join(" ")}
-                      title="Flytt opp"
-                      aria-label="Flytt opp"
+                      title="Move up"
+                      aria-label="Move up"
                     >
                       ↑
                     </button>
@@ -335,8 +344,8 @@ export default function PlanDayPage() {
                           ? "text-neutral-700 cursor-not-allowed"
                           : "text-neutral-200 hover:bg-neutral-900",
                       ].join(" ")}
-                      title="Flytt ned"
-                      aria-label="Flytt ned"
+                      title="Move down"
+                      aria-label="Move down"
                     >
                       ↓
                     </button>
@@ -350,8 +359,8 @@ export default function PlanDayPage() {
                         "active:scale-[0.98]",
                         "text-neutral-200 hover:bg-neutral-900 hover:text-white",
                       ].join(" ")}
-                      title="Fjern"
-                      aria-label={`Fjern ${x.name}`}
+                      title="Remove"
+                      aria-label={`Remove ${x.name}`}
                     >
                       ✕
                     </button>

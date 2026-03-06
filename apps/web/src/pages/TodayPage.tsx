@@ -1,77 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
-
-type Plan = {
-  name: string;
-  days: string[];
-};
-
-type DayExercise = {
-  exerciseId: string;
-  name: string;
-  sets: number;
-  reps: number;
-  startWeight: number;
-};
-
-const PLAN_KEY = "workouttracker.plan.v1";
-const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
-const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1";
-const WEEK_DONE_KEY = "workouttracker.weekJustCompleted.v1";
-
-// Weekly stats (v1)
-const WEEK_INDEX_KEY = "workouttracker.weekIndex.v1";
-const WEEKLY_STREAK_KEY = "workouttracker.weeklyStreak.v1";
-const WEEK_COMPLETIONS_KEY = "workouttracker.weekCompletions.v1";
-const LOG_KEY = "workouttracker.logs.v1";
-
-type WeekCompletion = {
-  weekIndex: number;
-  dayId: number;
-  completedAt: number;
-};
-
-type LogEntry = {
-  dayId: number;
-  exerciseId: string;
-  performedWeight: number;
-  performedReps: number;
-  timestamp: number;
-  weekIndex?: number;
-};
-
-function readNumberKey(key: string, fallback: number) {
-  const raw = localStorage.getItem(key);
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function readCompletions(): WeekCompletion[] {
-  const raw = localStorage.getItem(WEEK_COMPLETIONS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as WeekCompletion[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function readLogs(): LogEntry[] {
-  const raw = localStorage.getItem(LOG_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as LogEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function getDayKey(dayId: number) {
-  return `workouttracker.plan.day.${dayId}.v1`;
-}
+import type { DayExercise, LogEntry, Plan, WeekCompletion } from "../types";
+import {
+  clearPlanComplete,
+  clearRunState,
+  getCurrentDay,
+  getDayExercises,
+  getPlan,
+  isPlanComplete,
+  setCurrentDay,
+} from "../storage/planStorage";
+import { getLogs } from "../storage/logStorage";
+import {
+  clearWeekCompletions,
+  getAndClearWeekDoneFlag,
+  getWeekCompletions,
+  getWeekIndex,
+  getWeeklyStreak,
+  setWeekIndex,
+  setWeeklyStreak,
+} from "../storage/statsStorage";
 
 export default function TodayPage() {
   const navigate = useNavigate();
@@ -82,12 +31,10 @@ export default function TodayPage() {
   const [planComplete, setPlanComplete] = useState<boolean>(false);
   const [weekJustCompleted, setWeekJustCompleted] = useState(false);
 
-  // Vis "Uka er fullført!"-melding hvis vi nettopp har fullført uka
+  // Show "Week completed!" message if the week was just completed
   useEffect(() => {
-    const raw = localStorage.getItem(WEEK_DONE_KEY);
-    if (raw === "1") {
+    if (getAndClearWeekDoneFlag()) {
       setWeekJustCompleted(true);
-      localStorage.removeItem(WEEK_DONE_KEY);
 
       confetti({
         particleCount: 140,
@@ -97,49 +44,22 @@ export default function TodayPage() {
     }
   }, []);
 
-  // 1) Les aktiv plan
+  // 1) Read active plan
   useEffect(() => {
-    const raw = localStorage.getItem(PLAN_KEY);
-    if (!raw) {
-      setPlan(null);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed?.days || !Array.isArray(parsed.days)) {
-        setPlan(null);
-        return;
-      }
-      setPlan(parsed);
-    } catch {
-      setPlan(null);
-    }
+    setPlan(getPlan());
   }, []);
 
-  // Les om plan er fullført
+  // Read whether the plan is complete
   useEffect(() => {
-    const raw = localStorage.getItem(PLAN_COMPLETE_KEY);
-    setPlanComplete(raw === "1");
+    setPlanComplete(isPlanComplete());
   }, []);
 
-  // Les "neste økt" (sekvens)
+  // Read "next workout" (sequence)
   useEffect(() => {
-    const raw = localStorage.getItem(CURRENT_DAY_KEY);
-    if (!raw) {
-      setDayId(1);
-      return;
-    }
-
-    const parsed = Number(raw);
-    if (!Number.isNaN(parsed) && parsed > 0) {
-      setDayId(parsed);
-    } else {
-      setDayId(1);
-    }
+    setDayId(getCurrentDay());
   }, []);
 
-  // Clamp dayId mot antall økter i planen
+  // Clamp dayId to the number of workouts in the plan
   useEffect(() => {
     if (!plan) return;
 
@@ -147,50 +67,39 @@ export default function TodayPage() {
 
     if (dayId < 1) {
       setDayId(1);
-      localStorage.setItem(CURRENT_DAY_KEY, "1");
+      setCurrentDay(1);
       return;
     }
 
     if (dayId > max) {
       setDayId(1);
-      localStorage.setItem(CURRENT_DAY_KEY, "1");
+      setCurrentDay(1);
     }
   }, [plan, dayId]);
 
-  // Les øvelser for "neste økt"
+  // Read exercises for the "next workout"
   useEffect(() => {
-    const raw = localStorage.getItem(getDayKey(dayId));
-    if (!raw) {
-      setDayItems([]);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      setDayItems(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setDayItems([]);
-    }
+    setDayItems(getDayExercises(dayId));
   }, [dayId]);
 
   const dayTitle = useMemo(() => {
-    if (!plan?.days?.length) return `Økt ${dayId}`;
-    return plan.days[dayId - 1] ?? `Økt ${dayId}`;
+    if (!plan?.days?.length) return `Workout ${dayId}`;
+    return plan.days[dayId - 1] ?? `Workout ${dayId}`;
   }, [plan, dayId]);
 
   const firstDayTitle = useMemo(() => {
-  if (!plan?.days?.length) return "Økt 1";
-  return plan.days[0] ?? "Økt 1";
+  if (!plan?.days?.length) return "Workout 1";
+  return plan.days[0] ?? "Workout 1";
 }, [plan]);
 
-  // Beregn ukesstatistikk
+  // Calculate weekly stats
   const weeklyStats = useMemo(() => {
     const totalDays = plan?.days?.length ?? 0;
 
-    const weekIndex = readNumberKey(WEEK_INDEX_KEY, 1);
-    const streak = readNumberKey(WEEKLY_STREAK_KEY, 0);
+    const weekIndex = getWeekIndex();
+    const streak = getWeeklyStreak();
 
-    const completionsThisWeek = readCompletions().filter(
+    const completionsThisWeek = getWeekCompletions().filter(
       (c) => c.weekIndex === weekIndex
     );
 
@@ -201,16 +110,16 @@ export default function TodayPage() {
     const progressPct =
       totalDays > 0 ? Math.round((completedCount / totalDays) * 100) : 0;
 
-    // PR denne uka: bruker samme PR-definisjon som ProgressPage:
-    // - PR vekt: beste performedWeight per øvelse
-    // - PR reps: beste performedReps per øvelse
-    // Teller hvor mange øvelser som fikk ny PR (vekt eller reps) i perioden "denne uka"
-    const logs = readLogs();
+    // PR this week: uses the same PR definition as ProgressPage:
+    // - Weight PR: best performedWeight per exercise
+    // - Reps PR: best performedReps per exercise
+    // Counts how many exercises got a new PR (weight or reps) during "this week"
+    const logs = getLogs();
 
-    // Ikke i bruk for øyeblikket
+    // Not in use right now
     // const logsThisWeek = logs.filter((l) => l.weekIndex === weekIndex);
 
-    // best all time per øvelse (vekt og reps)
+    // Best all time per exercise (weight and reps)
     const bestWeightByExercise = new Map<string, { value: number; week: number }>();
     const bestRepsByExercise = new Map<string, { value: number; week: number }>();
 
@@ -234,7 +143,7 @@ export default function TodayPage() {
       }
     }
 
-    // teller “PR denne uka” = øvelser der PR (vekt eller reps) har week === weekIndex
+    // Count "PR this week" = exercises where PR (weight or reps) has week === weekIndex
     let prCountThisWeek = 0;
 
     const exercises = new Set<string>([
@@ -263,25 +172,25 @@ export default function TodayPage() {
     };
   }, [plan]);
 
-  // Reset plan (start på nytt)
+  // Reset plan (start over)
   const restartPlan = () => {
     const ok = window.confirm(
-      "Dette vil sette deg tilbake til Økt 1. Er du sikker?"
+      "This will set you back to Workout 1. Are you sure?"
     );
     if (!ok) return;
 
-    localStorage.setItem(CURRENT_DAY_KEY, "1");
-    localStorage.removeItem(PLAN_COMPLETE_KEY);
+    setCurrentDay(1);
+    clearPlanComplete();
 
     // Weekly stats reset
-    localStorage.setItem(WEEK_INDEX_KEY, "1");
-    localStorage.setItem(WEEKLY_STREAK_KEY, "0");
-    localStorage.removeItem(WEEK_COMPLETIONS_KEY);
+    setWeekIndex(1);
+    setWeeklyStreak(0);
+    clearWeekCompletions();
 
-    // Fjern run-state for alle økter
+    // Remove run state for all workouts
     if (plan?.days?.length) {
       for (let i = 1; i <= plan.days.length; i++) {
-        localStorage.removeItem(`workouttracker.run.day.${i}.v1`);
+        clearRunState(i);
       }
     }
 
@@ -289,59 +198,59 @@ export default function TodayPage() {
     setDayId(1);
   };
 
-  // Hvis ingen aktiv plan
+  // If no active plan
   if (!plan) {
     return (
       <div className="space-y-4">
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Today</h1>
           <p className="text-neutral-400 text-sm">
-            Du har ingen aktiv plan enda.
+            You do not have an active plan yet.
           </p>
         </header>
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
           <div className="text-sm text-neutral-300">
-            Gå til Plan for å opprette en plan først.
+            Go to Plan to create a plan first.
           </div>
 
           <Link
             to="/plan"
             className="block text-center w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
           >
-            Gå til Plan
+            Go to Plan
           </Link>
         </div>
       </div>
     );
   }
 
-  // Hvis planen er markert som fullført
+  // If the plan is marked as complete
   if (planComplete) {
     return (
       <div className="space-y-4">
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Today</h1>
-          <p className="text-neutral-400 text-sm">Planen er fullført 🎉</p>
+          <p className="text-neutral-400 text-sm">Plan completed 🎉</p>
         </header>
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
           <div className="text-sm text-neutral-300">
-            Bra jobba! Vil du starte planen på nytt fra Økt 1?
+            Great job! Do you want to restart the plan from Workout 1?
           </div>
 
           <button
             onClick={restartPlan}
             className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
           >
-            Start planen på nytt
+            Restart plan
           </button>
 
           <Link
             to="/plan"
             className="block text-center w-full rounded-2xl bg-neutral-800 py-4 text-lg font-semibold active:scale-[0.99]"
           >
-            Rediger plan
+            Edit plan
           </Link>
         </div>
       </div>
@@ -352,11 +261,11 @@ export default function TodayPage() {
     <div className="space-y-4">
       <header className="space-y-1">
         <h1 className="text-2xl font-bold">Today</h1>
-        <p className="text-neutral-400 text-sm">Neste økt i planen din.</p>
+        <p className="text-neutral-400 text-sm">Next workout in your plan.</p>
         {weekJustCompleted && (
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-3 text-sm text-neutral-200">
-            <span className="font-semibold">Uke fullført 🎉</span>{" "}
-            Starter på <span className="font-semibold">{firstDayTitle}</span> igjen.
+            <span className="font-semibold">Week completed 🎉</span>{" "}
+            Starting from <span className="font-semibold">{firstDayTitle}</span> again.
           </div>
         )}
       </header>
@@ -365,7 +274,7 @@ export default function TodayPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm text-neutral-400">Weekly stats</div>
-          <div className="text-lg font-semibold">Uke {weeklyStats.weekIndex}</div>
+          <div className="text-lg font-semibold">Week {weeklyStats.weekIndex}</div>
         </div>
 
         <div className="text-sm text-neutral-300">
@@ -375,7 +284,7 @@ export default function TodayPage() {
 
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span className="text-neutral-400">Fullført</span>
+          <span className="text-neutral-400">Completed</span>
           <span className="text-neutral-200 font-semibold">
             {weeklyStats.completedCount} / {weeklyStats.totalDays}
           </span>
@@ -389,14 +298,14 @@ export default function TodayPage() {
         </div>
 
         <div className="flex justify-between text-sm">
-          <span className="text-neutral-400">Gjenstår</span>
+          <span className="text-neutral-400">Remaining</span>
           <span className="text-neutral-200 font-semibold">
             {weeklyStats.remainingCount}
           </span>
         </div>
 
         {/* <div className="flex justify-between text-sm">
-          <span className="text-neutral-400">PR denne uka</span>
+          <span className="text-neutral-400">PR this week</span>
           <span className="text-neutral-200 font-semibold">
             {weeklyStats.prCountThisWeek}
           </span>
@@ -406,31 +315,31 @@ export default function TodayPage() {
     </div>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
-        {/* Økt header */}
+        {/* Workout header */}
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-neutral-400">Neste økt</div>
+            <div className="text-sm text-neutral-400">Next workout</div>
             <div className="text-lg font-semibold">{dayTitle}</div>
 
             <div className="text-xs text-neutral-500 mt-1">
-              Øvelser i økta: {dayItems.length}
+              Exercises in workout: {dayItems.length}
             </div>
           </div>
 
           <span className="text-xs rounded-full border border-neutral-700 px-3 py-1 text-neutral-300">
-            Økt {dayId}
+            Workout {dayId}
           </span>
         </div>
 
-        {/* Øvelser i økta */}
+        {/* Exercises in workout */}
           {dayItems.length > 0 ? (
             <div className="rounded-xl bg-black/30 border border-neutral-800 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs uppercase tracking-wider text-neutral-500">
-                  Øvelser
+                  Exercises
                 </div>
                 <div className="text-xs text-neutral-600">
-                  {dayItems.length} totalt
+                  {dayItems.length} total
                 </div>
               </div>
 
@@ -457,7 +366,7 @@ export default function TodayPage() {
             </div>
           ) : (
             <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-4 text-neutral-400 text-sm">
-              Det ligger ingen øvelser i {dayTitle} enda. Gå til Plan og legg til.
+              There are no exercises in {dayTitle} yet. Go to Plan and add some.
             </div>
           )}
 
@@ -471,24 +380,24 @@ export default function TodayPage() {
               : "bg-white text-black",
           ].join(" ")}
         >
-          Start økta
+          Start workout
         </button>
 
         <Link
           to={`/plan/day/${dayId}`}
           className="block text-center w-full rounded-2xl bg-neutral-800 py-4 text-lg font-semibold active:scale-[0.99]"
         >
-          Rediger denne økta
+          Edit this workout
         </Link>
 
-        {/* Diskret reset */}
+        {/* Subtle reset */}
         <div className="pt-1 flex justify-center">
           <button
             type="button"
             onClick={restartPlan}
             className="text-xs underline underline-offset-4 transition text-neutral-500 hover:text-neutral-300"
           >
-            Start planen på nytt
+            Restart plan
           </button>
         </div>
       </div>

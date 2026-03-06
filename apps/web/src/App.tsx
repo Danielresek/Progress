@@ -12,12 +12,12 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import BottomNav from "./components/BottomNav";
 import AppShell from "./components/AppShell";
 
-// Layout som kun brukes når man er innlogget
+// Layout only used when authenticated
 function AuthedLayout() {
   const location = useLocation();
   const { isAuthenticated, isLoading } = useAuth0();
 
-  // Skjul nav på disse routene
+  // Hide nav on these routes
   const hideNavForPath =
     location.pathname.startsWith("/callback") ||
     location.pathname.startsWith("/today/run");
@@ -40,11 +40,11 @@ function AuthedLayout() {
 export default function App() {
   return (
     <Routes>
-      {/* Offentlige routes */}
+      {/* Public routes */}
       <Route path="/callback" element={<CallbackPage />} />
       <Route path="/" element={<Navigate to="/today" replace />} />
 
-      {/* Alt under her krever innlogging */}
+      {/* Everything below requires authentication */}
       <Route
         element={
           <ProtectedRoute>

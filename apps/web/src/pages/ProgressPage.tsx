@@ -1,27 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { EXERCISES } from "../data/exercises";
-
-type LogEntry = {
-  dayId: number;
-  exerciseId: string;
-  performedWeight: number;
-  performedReps: number;
-  timestamp: number;
-  weekIndex?: number;
-};
-
-const LOG_KEY = "workouttracker.logs.v1";
-
-function readLogs(): LogEntry[] {
-  const raw = localStorage.getItem(LOG_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as LogEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
+import type { LogEntry } from "../types";
+import { clearLogs, getLogs } from "../storage/logStorage";
 
 function formatDate(ts: number) {
   try {
@@ -46,7 +26,7 @@ function volume(weight: number, reps: number) {
   return weight * reps;
 }
 
-/** enkel sparkline uten libs */
+/** Simple sparkline without libraries */
 function Sparkline({
   values,
   width = 220,
@@ -60,7 +40,7 @@ function Sparkline({
   if (cleaned.length < 2) {
     return (
       <div className="h-11 rounded-xl bg-neutral-950/60 border border-neutral-800 flex items-center justify-center text-xs text-neutral-500">
-        Ikke nok data for graf
+        Not enough data for chart
       </div>
     );
   }
@@ -115,10 +95,10 @@ export default function ProgressPage() {
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
 
   useEffect(() => {
-    setLogs(readLogs());
+    setLogs(getLogs());
   }, []);
 
-  // map id -> navn
+  // map id -> name
   const exerciseNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const e of EXERCISES) map.set(e.id, e.name);
@@ -156,7 +136,7 @@ export default function ProgressPage() {
     return arr;
   }, [allLogs, exerciseNameById]);
 
-  // sørg for gyldig selected når logs lastes / endres
+  // ensure selected value is valid when logs load / change
   useEffect(() => {
     if (!exercisesWithLogs.length) return;
     setSelectedExerciseId((prev) => {
@@ -172,7 +152,7 @@ export default function ProgressPage() {
   }, [exercisesWithLogs, selectedExerciseId]);
 
   const selectedName =
-    exercisesWithLogs.find((x) => x.id === safeSelected)?.name ?? "Øvelse";
+    exercisesWithLogs.find((x) => x.id === safeSelected)?.name ?? "Exercise";
 
   const entries = useMemo(() => {
     return allLogs
@@ -181,11 +161,11 @@ export default function ProgressPage() {
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [allLogs, safeSelected]);
 
-  // ✅ PR-flags: viser PR kun på loggen som faktisk satte ny rekord
+  // PR flags: only show PR on the log that actually set a new record
   const prFlags = useMemo(() => {
     const chronological = entries
       .slice()
-      .sort((a, b) => a.timestamp - b.timestamp); // eldste -> nyeste
+      .sort((a, b) => a.timestamp - b.timestamp); // oldest -> newest
 
     let bestW = 0;
     let bestR = 0;
@@ -234,7 +214,7 @@ export default function ProgressPage() {
   }, [entries]);
 
   const strengthScore = useMemo(() => {
-  // 1) Best volum-sett per øvelse (all time)
+  // 1) Best volume set per exercise (all time)
   const bestAllTime = new Map<string, number>();
   for (const l of allLogs) {
     const v = volume(l.performedWeight, l.performedReps);
@@ -243,16 +223,16 @@ export default function ProgressPage() {
   }
   const allTimeScore = Array.from(bestAllTime.values()).reduce((a, b) => a + b, 0);
 
-  // 2) Finn siste app-uke fra loggene (ikke kalenderuke)
+  // 2) Find latest app week from logs (not calendar week)
   const weeks = allLogs
     .map((l) => l.weekIndex)
     .filter((w): w is number => typeof w === "number" && Number.isFinite(w));
 
-  // Hvis vi ikke har weekIndex på logger enda, faller vi tilbake til "første uke"
+  // If weekIndex is missing on logs, fall back to "first week"
   const latestWeek = weeks.length > 0 ? Math.max(...weeks) : 1;
   const prevWeek = latestWeek - 1;
 
-  // 3) Best volum-sett per øvelse (denne uke / forrige uke)
+  // 3) Best volume set per exercise (this week / previous week)
   const bestThisWeek = new Map<string, number>();
   const bestLastWeek = new Map<string, number>();
 
@@ -290,16 +270,16 @@ export default function ProgressPage() {
 
   const resetLogs = () => {
     const ok = window.confirm(
-      "Dette sletter all historikk og PR-data. Kan ikke angres.\n\nVil du fortsette?"
+      "This deletes all history and PR data. Cannot be undone.\n\nDo you want to continue?"
     );
     if (!ok) return;
 
-    localStorage.removeItem(LOG_KEY);
+    clearLogs();
     setLogs([]);
     setSelectedExerciseId("");
   };
 
-  // Tom state: ingen logging i det hele tatt
+  // Empty state: no logs at all
   if (!allLogs.length) {
     return (
       <div className="space-y-4">
@@ -307,7 +287,7 @@ export default function ProgressPage() {
           <div className="space-y-1">
             <h1 className="text-2xl font-bold">Progress</h1>
             <p className="text-neutral-400 text-sm">
-              Når du har fullført en økt i Today, dukker historikken opp her.
+              After you complete a workout in Today, history appears here.
             </p>
           </div>
 
@@ -321,9 +301,9 @@ export default function ProgressPage() {
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
           <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-4 text-neutral-300 text-sm">
-            Ingen logg enda. Start en økt i{" "}
-            <span className="font-semibold text-white">Today</span> og trykk
-            “Lagre og neste” for å lage første entry.
+            No logs yet. Start a workout in{" "}
+            <span className="font-semibold text-white">Today</span> and press
+            "Save and next" to create your first entry.
           </div>
         </div>
       </div>
@@ -337,7 +317,7 @@ export default function ProgressPage() {
           <div className="space-y-1">
             <h1 className="text-2xl font-bold">Progress</h1>
             <p className="text-neutral-400 text-sm">
-              Fant logger, men ingen øvelse å velge.
+              Logs found, but no exercise to select.
             </p>
           </div>
 
@@ -358,7 +338,7 @@ export default function ProgressPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold">Progress</h1>
           <p className="text-neutral-400 text-sm">
-            Velg øvelse for å se PR og historikk.
+            Select an exercise to view PR and history.
           </p>
         </div>
 
@@ -371,9 +351,9 @@ export default function ProgressPage() {
       </header>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
-        {/* Velg øvelse */}
+        {/* Select exercise */}
         <div className="space-y-2">
-          <div className="text-sm text-neutral-400">Øvelse</div>
+          <div className="text-sm text-neutral-400">Exercise</div>
           <select
             value={safeSelected}
             onChange={(e) => setSelectedExerciseId(e.target.value)}
@@ -391,7 +371,7 @@ export default function ProgressPage() {
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
             <div className="text-xs uppercase tracking-wider text-neutral-500">
-              Beste vekt
+              Best weight
             </div>
             <div className="text-2xl font-bold mt-1">
               {formatWeight(stats.bestWeight)}{" "}
@@ -401,7 +381,7 @@ export default function ProgressPage() {
 
           <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
             <div className="text-xs uppercase tracking-wider text-neutral-500">
-              Beste reps
+              Best reps
             </div>
             <div className="text-2xl font-bold mt-1">{stats.bestReps.toFixed(0)}</div>
           </div>
@@ -418,25 +398,25 @@ export default function ProgressPage() {
             {strengthScore.lastWeekScore > 0 ? (
               <div className="text-xs text-neutral-600 mt-1">
                 {strengthScore.delta >= 0 ? "↑" : "↓"}{" "}
-                {Math.abs(strengthScore.delta).toFixed(0)} denne uka
+                {Math.abs(strengthScore.delta).toFixed(0)} this week
               </div>
             ) : (
               <div className="text-xs text-neutral-600 mt-1">
-                Første uke med data (uke {strengthScore.latestWeek})
+                First week with data (week {strengthScore.latestWeek})
               </div>
             )}
           </div>
 
           <div className="rounded-2xl bg-neutral-950/60 border border-neutral-800 p-4">
             <div className="text-xs uppercase tracking-wider text-neutral-500">
-              Totalt
+              Total
             </div>
             <div className="text-lg font-semibold mt-1 text-neutral-100">
               {stats.total}{" "}
-              <span className="text-neutral-500 font-normal">logger</span>
+              <span className="text-neutral-500 font-normal">logs</span>
             </div>
             <div className="text-xs text-neutral-600 mt-1">
-              Sist: {stats.lastDate || "—"}
+              Last: {stats.lastDate || "—"}
             </div>
           </div>
         </div>
@@ -444,22 +424,22 @@ export default function ProgressPage() {
         {/* Trend */}
         <Sparkline values={trendValues} />
 
-        {/* Historikk */}
+        {/* History */}
         <div className="pt-2 border-t border-neutral-800">
           <div className="flex items-end justify-between mb-2">
             <div>
-              <div className="text-sm text-neutral-300 font-semibold">Historikk</div>
+              <div className="text-sm text-neutral-300 font-semibold">History</div>
               <div className="text-xs text-neutral-500">{selectedName}</div>
             </div>
 
             <div className="text-xs text-neutral-600">
-              Viser {Math.min(entries.length, 20)} av {entries.length}
+              Showing {Math.min(entries.length, 20)} of {entries.length}
             </div>
           </div>
 
           {entries.length === 0 ? (
             <div className="text-neutral-400 text-sm">
-              Ingen logg enda for denne øvelsen.
+              No logs yet for this exercise.
             </div>
           ) : (
             <div className="space-y-2">
@@ -486,13 +466,13 @@ export default function ProgressPage() {
 
                     <div className="mt-2 flex items-center justify-between">
                       <div className="text-xs text-neutral-600">
-                        Volum: {Number.isFinite(vol) ? vol.toFixed(0) : "0"}
+                        Volume: {Number.isFinite(vol) ? vol.toFixed(0) : "0"}
                       </div>
 
                       <div className="flex gap-2">
                         {isBestWeight && (
                           <span className="text-xs px-2 py-1 rounded-full border border-neutral-700 text-neutral-200">
-                            PR vekt
+                            PR weight
                           </span>
                         )}
                         {isBestReps && (
@@ -509,8 +489,8 @@ export default function ProgressPage() {
           )}
 
           <div className="mt-3 text-xs text-neutral-600">
-            Tips: PR set måles som{" "}
-            <span className="text-neutral-400">kg × reps</span> på ett logget sett.
+            Tip: PR set is measured as{" "}
+            <span className="text-neutral-400">kg × reps</span> on a single logged set.
           </div>
         </div>
       </div>

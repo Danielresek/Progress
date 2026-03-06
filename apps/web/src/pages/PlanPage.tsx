@@ -2,31 +2,18 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { EXERCISES } from "../data/exercises";
 import { PLAN_TEMPLATES, type PlanTemplate } from "../data/templates";
-
-type Plan = {
-  name: string;
-  days: string[];
-};
-
-type DayExercise = {
-  exerciseId: string;
-  name: string;
-  sets: number;
-  reps: number;
-  startWeight: number;
-};
-
-const PLAN_KEY = "workouttracker.plan.v1";
-const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
-const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1";
-
-function getDayKey(dayId: number) {
-  return `workouttracker.plan.day.${dayId}.v1`;
-}
-
-function getRunKey(dayId: number) {
-  return `workouttracker.run.day.${dayId}.v1`;
-}
+import type { DayExercise, Plan } from "../types";
+import {
+  clearCurrentDay,
+  clearDayExercises,
+  clearPlan,
+  clearPlanComplete,
+  clearRunState,
+  getPlan,
+  saveDayExercises,
+  savePlan,
+  setCurrentDay,
+} from "../storage/planStorage";
 
 export default function PlanPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -42,37 +29,28 @@ export default function PlanPage() {
     return map;
   }, []);
 
-  // Last inn plan fra localStorage ved oppstart
+  // Load plan from localStorage on mount
   useEffect(() => {
-    const raw = localStorage.getItem(PLAN_KEY);
-    if (!raw) return;
-
-    try {
-      const parsed: Plan = JSON.parse(raw);
-      if (parsed?.name && Array.isArray(parsed.days)) {
-        setPlan(parsed);
-      }
-    } catch {
-    }
+    setPlan(getPlan());
   }, []);
 
-  // Lagre plan til localStorage når plan endrer seg
+  // Persist plan to localStorage when it changes
   useEffect(() => {
     if (!plan) return;
-    localStorage.setItem(PLAN_KEY, JSON.stringify(plan));
+    savePlan(plan);
   }, [plan]);
 
   const createPlan = () => {
-    const name = planName.trim() || "Min treningsplan";
+    const name = planName.trim() || "My workout plan";
 
     setPlan({
       name,
-      days: Array.from({ length: dayCount }, (_, i) => `Økt ${i + 1}`),
+      days: Array.from({ length: dayCount }, (_, i) => `Workout ${i + 1}`),
     });
 
-    // Når man oppretter ny plan: start sekvens fra 1
-    localStorage.setItem(CURRENT_DAY_KEY, "1");
-    localStorage.removeItem(PLAN_COMPLETE_KEY);
+    // When creating a new plan: start sequence at 1
+    setCurrentDay(1);
+    clearPlanComplete();
   };
 
   const createPlanFromTemplate = (template: PlanTemplate) => {
@@ -92,38 +70,38 @@ export default function PlanPage() {
         startWeight: x.startWeight ?? 0,
       }));
 
-      localStorage.setItem(getDayKey(i + 1), JSON.stringify(dayItems));
-      localStorage.removeItem(getRunKey(i + 1));
+      saveDayExercises(i + 1, dayItems);
+      clearRunState(i + 1);
     });
 
-    localStorage.setItem(CURRENT_DAY_KEY, "1");
-    localStorage.removeItem(PLAN_COMPLETE_KEY);
+    setCurrentDay(1);
+    clearPlanComplete();
   };
 
   const resetPlan = () => {
     const ok = window.confirm(
-      "Dette vil slette planen og alle økter/øvelser. Er du sikker?"
+      "This will delete the plan and all workouts/exercises. Are you sure?"
     );
     if (!ok) return;
 
     const daysCount = plan?.days?.length ?? 0;
 
-    // Slett selve planen
-    localStorage.removeItem(PLAN_KEY);
+    // Delete the plan itself
+    clearPlan();
 
-    // Slett alle øvelser pr økt
+    // Delete all exercises per workout
     for (let i = 1; i <= daysCount; i++) {
-      localStorage.removeItem(getDayKey(i));
+      clearDayExercises(i);
     }
 
-    // Slett run-state pr økt
+    // Delete run state per workout
     for (let i = 1; i <= daysCount; i++) {
-      localStorage.removeItem(getRunKey(i));
+      clearRunState(i);
     }
 
-    // Slett today-sekvens + fullført-flagget
-    localStorage.removeItem(CURRENT_DAY_KEY);
-    localStorage.removeItem(PLAN_COMPLETE_KEY);
+    // Delete today sequence + complete flag
+    clearCurrentDay();
+    clearPlanComplete();
 
     // Reset state/UI
     setPlan(null);
@@ -137,28 +115,28 @@ export default function PlanPage() {
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Plan</h1>
           <p className="text-neutral-400 text-sm">
-            Opprett en aktiv plan for å komme i gang.
+            Create an active plan to get started.
           </p>
         </header>
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
           <div className="space-y-1">
-            <div className="text-sm text-neutral-300 font-semibold">Lag selv</div>
-            <p className="text-xs text-neutral-500">Opprett en plan fra bunnen.</p>
+            <div className="text-sm text-neutral-300 font-semibold">Create manually</div>
+            <p className="text-xs text-neutral-500">Create a plan from scratch.</p>
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm text-neutral-300">Navn på plan</label>
+            <label className="text-sm text-neutral-300">Plan name</label>
             <input
               value={planName}
               onChange={(e) => setPlanName(e.target.value)}
-              placeholder="Min treningsplan"
+              placeholder="My workout plan"
               className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm text-neutral-300">Antall økter</label>
+            <label className="text-sm text-neutral-300">Number of workouts</label>
             <div className="grid grid-cols-5 gap-2">
               {dayOptions.map((n) => (
                 <button
@@ -181,11 +159,11 @@ export default function PlanPage() {
             onClick={createPlan}
             className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
           >
-            Opprett plan
+            Create plan
           </button>
 
           <div className="pt-2 border-t border-neutral-800 space-y-2">
-            <div className="text-sm text-neutral-300 font-semibold">Eller bruk mal</div>
+            <div className="text-sm text-neutral-300 font-semibold">Or use template</div>
             <div className="space-y-2">
               {PLAN_TEMPLATES.map((template) => (
                 <button
@@ -207,7 +185,7 @@ export default function PlanPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Aktiv plan</h1>
+        <h1 className="text-2xl font-bold">Active plan</h1>
 
         <button onClick={resetPlan} className="text-sm text-neutral-300 underline">
           Reset plan
@@ -216,7 +194,7 @@ export default function PlanPage() {
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
         <div>
-          <div className="text-sm text-neutral-400">Navn</div>
+          <div className="text-sm text-neutral-400">Name</div>
           <div className="text-lg font-semibold">{plan.name}</div>
         </div>
 

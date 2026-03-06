@@ -1,84 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-
-type Plan = {
-  name: string;
-  days: string[];
-};
-
-type DayExercise = {
-  exerciseId: string;
-  name: string;
-  sets: number;
-  reps: number;
-  startWeight: number;
-};
-
-type LogEntry = {
-  dayId: number;
-  exerciseId: string;
-  performedWeight: number;
-  performedReps: number;
-  timestamp: number;
-  weekIndex: number;
-};
-
-const PLAN_KEY = "workouttracker.plan.v1";
-const CURRENT_DAY_KEY = "workouttracker.currentDay.v1";
-const PLAN_COMPLETE_KEY = "workouttracker.planComplete.v1"; // vi bruker ikke dette lenger (men vi rydder det bort)
-const LOG_KEY = "workouttracker.logs.v1";
-const WEEK_DONE_KEY = "workouttracker.weekJustCompleted.v1";
-
-// Weekly stats (v1)
-const WEEK_INDEX_KEY = "workouttracker.weekIndex.v1";
-const WEEKLY_STREAK_KEY = "workouttracker.weeklyStreak.v1";
-const WEEK_COMPLETIONS_KEY = "workouttracker.weekCompletions.v1";
-
-type WeekCompletion = {
-  weekIndex: number;
-  dayId: number;
-  completedAt: number;
-};
-
-function readNumberKey(key: string, fallback: number) {
-  const raw = localStorage.getItem(key);
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function readCompletions(): WeekCompletion[] {
-  const raw = localStorage.getItem(WEEK_COMPLETIONS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as WeekCompletion[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCompletions(items: WeekCompletion[]) {
-  localStorage.setItem(WEEK_COMPLETIONS_KEY, JSON.stringify(items));
-}
-
-function getDayKey(dayId: number) {
-  return `workouttracker.plan.day.${dayId}.v1`;
-}
-
-function getRunKey(dayId: number) {
-  return `workouttracker.run.day.${dayId}.v1`;
-}
-
-function readLogs(): LogEntry[] {
-  const raw = localStorage.getItem(LOG_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as LogEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
+import type { DayExercise, LogEntry, Plan } from "../types";
+import {
+  clearPlanComplete,
+  clearRunState,
+  getDayExercises,
+  getPlan,
+  getRunIndex,
+  setCurrentDay,
+  setRunIndex,
+} from "../storage/planStorage";
+import { addLogEntry, getLogs } from "../storage/logStorage";
+import {
+  getWeekCompletions,
+  getWeekIndex,
+  getWeeklyStreak,
+  saveWeekCompletions,
+  setWeekDoneFlag,
+  setWeekIndex,
+  setWeeklyStreak,
+} from "../storage/statsStorage";
 
 export default function TodayRunPage() {
   const navigate = useNavigate();
@@ -94,71 +35,39 @@ export default function TodayRunPage() {
 
   const [formError, setFormError] = useState<string>("");
 
-  // Les plan (for å få navn på økta + antall økter)
+  // Read plan (to get workout name + number of workouts)
   useEffect(() => {
-    const raw = localStorage.getItem(PLAN_KEY);
-    if (!raw) {
-      setPlan(null);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed?.days || !Array.isArray(parsed.days)) {
-        setPlan(null);
-        return;
-      }
-      setPlan(parsed);
-    } catch {
-      setPlan(null);
-    }
+    setPlan(getPlan());
   }, []);
 
   const dayTitle = useMemo(() => {
-    if (!plan?.days?.length) return `Økt ${dayId}`;
-    return plan.days[dayId - 1] ?? `Økt ${dayId}`;
+    if (!plan?.days?.length) return `Workout ${dayId}`;
+    return plan.days[dayId - 1] ?? `Workout ${dayId}`;
   }, [plan, dayId]);
 
-  // Last øvelser for dagen
+  // Load exercises for the day
   useEffect(() => {
-    const raw = localStorage.getItem(getDayKey(dayId));
-    if (!raw) {
-      setItems([]);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      setItems(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setItems([]);
-    }
+    setItems(getDayExercises(dayId));
   }, [dayId]);
 
-  // Last "hvor langt du kom" i økta (index)
+  // Load "how far you got" in the workout (index)
   useEffect(() => {
-    const raw = localStorage.getItem(getRunKey(dayId));
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed?.index === "number") setIndex(parsed.index);
-    } catch {
-      // ignore
-    }
+    const savedIndex = getRunIndex(dayId);
+    if (savedIndex !== null) setIndex(savedIndex);
   }, [dayId]);
 
-  // Når index endrer seg: lagre den
+  // Persist index when it changes
   useEffect(() => {
-    localStorage.setItem(getRunKey(dayId), JSON.stringify({ index }));
+    setRunIndex(dayId, index);
   }, [dayId, index]);
 
   const current = useMemo(() => items[index] ?? null, [items, index]);
 
-  // Finn siste logg for denne øvelsen (på tvers av økter/uker)
+  // Find the latest log for this exercise (across workouts/weeks)
   const last = useMemo(() => {
     if (!current) return null;
 
-    const logs = readLogs();
+    const logs = getLogs();
     const found = logs
       .filter((l) => l.exerciseId === current.exerciseId)
       .sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -166,7 +75,7 @@ export default function TodayRunPage() {
     return found ?? null;
   }, [current?.exerciseId]);
 
-  // (valgfritt men nice): når vi bytter øvelse, nullstill error og inputs
+  // Optional nicety: reset error and inputs when exercise changes
   useEffect(() => {
     setFormError("");
     setKg("");
@@ -180,7 +89,7 @@ export default function TodayRunPage() {
 };
 
 const setKgSafe = (n: number) => {
-  // viser alltid med punktum, men du kan gjøre den mer fancy senere
+  // Always displays dot decimals; can be enhanced later
   setKg(String(n));
 };
 
@@ -215,10 +124,10 @@ const applySuggestion = () => {
 };
 
 const bumpKg = (delta: number) => {
-  // 1) prøv kg-feltet
+  // 1) Try kg input first
   const currentKg = toNumberOrNull(kg);
 
-  // 2) hvis tom/ugyldig: bruk sist kg om finnes, ellers 0
+  // 2) If empty/invalid: use last kg if available, otherwise 0
   const base = currentKg ?? last?.performedWeight ?? 0;
 
   const next = Math.max(0, base + delta);
@@ -249,11 +158,11 @@ const bumpKg = (delta: number) => {
     const performedReps = parsePositiveNumber(reps);
 
     if (performedWeight === null || performedReps === null) {
-      setFormError("Fyll inn både kg og reps (tall større enn 0) før du lagrer.");
+      setFormError("Fill in both kg and reps (numbers greater than 0) before saving.");
       return;
     }
 
-    const weekIndex = readNumberKey(WEEK_INDEX_KEY, 1);
+    const weekIndex = getWeekIndex();
 
     const entry: LogEntry = {
       dayId,
@@ -264,57 +173,55 @@ const bumpKg = (delta: number) => {
       weekIndex,
     };
 
-    const logs = readLogs();
-    logs.push(entry);
-    localStorage.setItem(LOG_KEY, JSON.stringify(logs));
+    addLogEntry(entry);
 
     // reset inputs + error
     setKg("");
     setReps("");
     setFormError("");
 
-    // neste øvelse
+    // next exercise
     const nextIndex = index + 1;
     if (nextIndex >= items.length) {
-      setIndex(items.length); // ferdig
+      setIndex(items.length); // done
       return;
     }
     setIndex(nextIndex);
   };
 
   const resetRun = () => {
-    const ok = window.confirm("Vil du starte økta på nytt?");
+    const ok = window.confirm("Do you want to restart this workout?");
     if (!ok) return;
 
-    localStorage.removeItem(getRunKey(dayId));
+    clearRunState(dayId);
     setIndex(0);
     setKg("");
     setReps("");
     setFormError("");
   };
 
-  // Lagre og lukk: flytt sekvensen til neste økt (eller loop til økt 1) og gå tilbake til Today
+  // Save and close: advance to next workout (or loop to workout 1) and go back to Today
   const saveAndClose = () => {
     const totalDays = plan?.days?.length ?? 0;
 
-    // rydd run-state for denne økta
-    localStorage.removeItem(getRunKey(dayId));
+    // clear run state for this workout
+    clearRunState(dayId);
 
-    // Weekly stats: registrer at denne økta ble fullført i aktiv uke
-    const weekIndex = readNumberKey(WEEK_INDEX_KEY, 1);
+    // Weekly stats: register that this workout was completed in active week
+    const weekIndex = getWeekIndex();
 
-    const completions = readCompletions();
+    const completions = getWeekCompletions();
     const exists = completions.some(
       (c) => c.weekIndex === weekIndex && c.dayId === dayId
     );
 
     if (!exists) {
       completions.push({ weekIndex, dayId, completedAt: Date.now() });
-      writeCompletions(completions);
+      saveWeekCompletions(completions);
     }
 
-    // VIKTIG: sørg for at "plan complete"-visningen aldri trigger
-    localStorage.removeItem(PLAN_COMPLETE_KEY);
+    // IMPORTANT: ensure the "plan complete" view never triggers
+    clearPlanComplete();
 
     if (!totalDays) {
       navigate("/today");
@@ -324,17 +231,17 @@ const bumpKg = (delta: number) => {
     const nextDay = dayId + 1;
 
     if (nextDay > totalDays) {
-      // LOOP: ny uke starter
-      localStorage.setItem(CURRENT_DAY_KEY, "1");
-      localStorage.setItem(WEEK_DONE_KEY, "1"); // toast på Today
+      // LOOP: new week starts
+      setCurrentDay(1);
+      setWeekDoneFlag(true); // toast on Today
 
-      const currentWeek = readNumberKey(WEEK_INDEX_KEY, 1);
-      localStorage.setItem(WEEK_INDEX_KEY, String(currentWeek + 1));
+      const currentWeek = getWeekIndex();
+      setWeekIndex(currentWeek + 1);
 
-      const streak = readNumberKey(WEEKLY_STREAK_KEY, 0);
-      localStorage.setItem(WEEKLY_STREAK_KEY, String(streak + 1));
+      const streak = getWeeklyStreak();
+      setWeeklyStreak(streak + 1);
     } else {
-      localStorage.setItem(CURRENT_DAY_KEY, String(nextDay));
+      setCurrentDay(nextDay);
     }
 
     navigate("/today");
@@ -344,9 +251,9 @@ const bumpKg = (delta: number) => {
     return (
       <div className="space-y-4">
         <header className="space-y-1">
-          <h1 className="text-2xl font-bold">Gjennomfør økt</h1>
+          <h1 className="text-2xl font-bold">Run workout</h1>
           <p className="text-neutral-400 text-sm">
-            Fant ingen øvelser i {dayTitle}. Legg til øvelser i Plan først.
+            No exercises found in {dayTitle}. Add exercises in Plan first.
           </p>
         </header>
 
@@ -354,20 +261,20 @@ const bumpKg = (delta: number) => {
           to={`/plan/day/${dayId}`}
           className="block text-center w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
         >
-          Gå til Plan for {dayTitle}
+          Go to Plan for {dayTitle}
         </Link>
       </div>
     );
   }
 
-  // ferdig med økta
+  // workout completed
   if (index >= items.length) {
     return (
       <div className="space-y-4">
         <header className="space-y-1">
-          <h1 className="text-2xl font-bold">{dayTitle} fullført ✅</h1>
+          <h1 className="text-2xl font-bold">{dayTitle} completed ✅</h1>
           <p className="text-neutral-400 text-sm">
-            Vil du lagre og gå tilbake til Today, eller starte økta på nytt?
+            Do you want to save and go back to Today, or restart this workout?
           </p>
         </header>
 
@@ -375,21 +282,21 @@ const bumpKg = (delta: number) => {
           onClick={saveAndClose}
           className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
         >
-          Lagre og lukk
+          Save and close
         </button>
 
         <button
           onClick={resetRun}
           className="w-full rounded-2xl bg-neutral-800 py-4 text-lg font-semibold active:scale-[0.99]"
         >
-          Start økta på nytt
+          Restart workout
         </button>
 
         <Link
           to="/today"
           className="block text-center w-full rounded-2xl bg-neutral-900 border border-neutral-800 py-4 text-lg font-semibold active:scale-[0.99]"
         >
-          Tilbake til Today
+          Back to Today
         </Link>
       </div>
     );
@@ -399,18 +306,18 @@ const bumpKg = (delta: number) => {
     <div className="space-y-4">
       <header className="space-y-1">
         <Link to="/today" className="text-sm text-neutral-400">
-          ← Tilbake
+          ← Back
         </Link>
 
         <h1 className="text-2xl font-bold">{dayTitle}</h1>
         <p className="text-neutral-400 text-sm">
-          Øvelse {index + 1} av {items.length}
+          Exercise {index + 1} of {items.length}
         </p>
       </header>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
         <div>
-          <div className="text-sm text-neutral-400">Øvelse</div>
+          <div className="text-sm text-neutral-400">Exercise</div>
           <div className="text-xl font-semibold">{current?.name}</div>
         </div>
 
@@ -423,7 +330,7 @@ const bumpKg = (delta: number) => {
           </div>
 
           <div className="flex justify-between">
-            <span className="text-neutral-400">Sist</span>
+            <span className="text-neutral-400">Last</span>
             <span>
               {last
                 ? `${last.performedWeight} kg × ${last.performedReps}`
@@ -434,14 +341,14 @@ const bumpKg = (delta: number) => {
           {suggestion && (
             <div className="flex items-center justify-between gap-3 border-t border-neutral-800 pt-2 mt-2">
               <span>
-                Forslag: {suggestion.weight} kg × {suggestion.reps}
+                Suggestion: {suggestion.weight} kg × {suggestion.reps}
               </span>
               <button
                 type="button"
                 onClick={applySuggestion}
                 className="px-3 py-1.5 rounded-lg border border-neutral-700 bg-neutral-950/60 text-neutral-200 text-xs font-semibold active:scale-[0.99]"
               >
-                Bruk forslag
+                Use suggestion
               </button>
             </div>
           )}
@@ -449,7 +356,7 @@ const bumpKg = (delta: number) => {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <div className="text-xs text-neutral-400">Kg (faktisk)</div>
+            <div className="text-xs text-neutral-400">Kg (actual)</div>
             <input
               value={kg}
               onChange={(e) => {
@@ -457,13 +364,13 @@ const bumpKg = (delta: number) => {
                 if (formError) setFormError("");
               }}
               inputMode="decimal"
-              placeholder="f.eks 100"
+              placeholder="e.g. 100"
               className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
             />
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-neutral-400">Reps (faktisk)</div>
+            <div className="text-xs text-neutral-400">Reps (actual)</div>
             <input
               value={reps}
               onChange={(e) => {
@@ -471,7 +378,7 @@ const bumpKg = (delta: number) => {
                 if (formError) setFormError("");
               }}
               inputMode="numeric"
-              placeholder="f.eks 8"
+              placeholder="e.g. 8"
               className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
             />
           </div>
@@ -489,7 +396,7 @@ const bumpKg = (delta: number) => {
                 : "border-neutral-800 bg-neutral-950/30 text-neutral-600 cursor-not-allowed",
             ].join(" ")}
           >
-            Bruk sist
+            Use last
           </button>
 
           <button
@@ -523,14 +430,14 @@ const bumpKg = (delta: number) => {
               : "bg-neutral-800 text-neutral-500 cursor-not-allowed",
           ].join(" ")}
         >
-          Lagre og neste
+          Save and next
         </button>
 
         <button
           onClick={resetRun}
           className="w-full rounded-2xl bg-neutral-800 py-4 text-lg font-semibold active:scale-[0.99]"
         >
-          Start økta på nytt
+          Restart workout
         </button>
       </div>
     </div>

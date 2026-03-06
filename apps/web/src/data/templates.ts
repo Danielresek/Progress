@@ -17,10 +17,10 @@ export const PLAN_TEMPLATES: PlanTemplate[] = [
   {
     id: "full-body-3-days",
     name: "Full Body 3 Days",
-    description: "Tre fullkroppsokter med fokus pa baseovelser og enkel progresjon.",
+    description: "Three full-body workouts focused on compound movements and simple progression.",
     days: [
       {
-        name: "Okt 1",
+        name: "Workout 1",
         exercises: [
           { exerciseId: "squat", sets: 3, reps: 8 },
           { exerciseId: "bench-press", sets: 3, reps: 8 },
@@ -30,7 +30,7 @@ export const PLAN_TEMPLATES: PlanTemplate[] = [
         ],
       },
       {
-        name: "Okt 2",
+        name: "Workout 2",
         exercises: [
           { exerciseId: "rdl", sets: 3, reps: 8 },
           { exerciseId: "incline-db-press", sets: 3, reps: 10 },
@@ -40,7 +40,7 @@ export const PLAN_TEMPLATES: PlanTemplate[] = [
         ],
       },
       {
-        name: "Okt 3",
+        name: "Workout 3",
         exercises: [
           { exerciseId: "leg-press", sets: 3, reps: 10 },
           { exerciseId: "pull-up", sets: 3, reps: 8 },
@@ -54,7 +54,7 @@ export const PLAN_TEMPLATES: PlanTemplate[] = [
   {
     id: "upper-lower-4-days",
     name: "Upper / Lower 4 Days",
-    description: "Fire okter fordelt pa overkropp og underkropp for jevn belastning.",
+    description: "Four sessions split between upper and lower body for balanced training.",
     days: [
       {
         name: "Upper 1",

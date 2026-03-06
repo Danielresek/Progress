@@ -22,8 +22,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Auth0 JWT
-var auth0Domain = builder.Configuration["Auth0:Domain"];     // f.eks: dev-xxxx.us.auth0.com
-var auth0Audience = builder.Configuration["Auth0:Audience"]; // f.eks: https://workouttracker-api
+var auth0Domain = builder.Configuration["Auth0:Domain"];     // e.g.: dev-xxxx.us.auth0.com
+var auth0Audience = builder.Configuration["Auth0:Audience"]; // e.g.: https://workouttracker-api
 
 if (string.IsNullOrWhiteSpace(auth0Domain) || string.IsNullOrWhiteSpace(auth0Audience))
 {
@@ -51,13 +51,13 @@ if (app.Environment.IsDevelopment())
 
 // app.UseHttpsRedirection();
 
-// Viktig rekkefølge:
+// Important order:
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok("OK"));
 
-// Test-endpoint: krever token
+// Test endpoint: requires token
 app.MapGet("/me", (ClaimsPrincipal user) =>
 {
     var sub =
@@ -67,7 +67,7 @@ app.MapGet("/me", (ClaimsPrincipal user) =>
     return Results.Ok(new
     {
         sub,
-        // behold scopes og issuer for debugging
+        // keep scopes and issuer for debugging
         iss = user.FindFirst("iss")?.Value,
         aud = user.Claims.Where(c => c.Type == "aud").Select(c => c.Value).ToArray(),
         scope = user.FindFirst("scope")?.Value,
