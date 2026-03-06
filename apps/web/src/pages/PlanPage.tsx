@@ -1,9 +1,19 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { EXERCISES } from "../data/exercises";
+import { PLAN_TEMPLATES, type PlanTemplate } from "../data/templates";
 
 type Plan = {
   name: string;
   days: string[];
+};
+
+type DayExercise = {
+  exerciseId: string;
+  name: string;
+  sets: number;
+  reps: number;
+  startWeight: number;
 };
 
 const PLAN_KEY = "workouttracker.plan.v1";
@@ -26,6 +36,11 @@ export default function PlanPage() {
   const [dayCount, setDayCount] = useState(3);
 
   const dayOptions = useMemo(() => [2, 3, 4, 5, 6], []);
+  const exerciseNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of EXERCISES) map.set(e.id, e.name);
+    return map;
+  }, []);
 
   // Last inn plan fra localStorage ved oppstart
   useEffect(() => {
@@ -56,6 +71,31 @@ export default function PlanPage() {
     });
 
     // Når man oppretter ny plan: start sekvens fra 1
+    localStorage.setItem(CURRENT_DAY_KEY, "1");
+    localStorage.removeItem(PLAN_COMPLETE_KEY);
+  };
+
+  const createPlanFromTemplate = (template: PlanTemplate) => {
+    const nextPlan: Plan = {
+      name: template.name,
+      days: template.days.map((d) => d.name),
+    };
+
+    setPlan(nextPlan);
+
+    template.days.forEach((day, i) => {
+      const dayItems: DayExercise[] = day.exercises.map((x) => ({
+        exerciseId: x.exerciseId,
+        name: exerciseNameById.get(x.exerciseId) ?? x.exerciseId,
+        sets: x.sets,
+        reps: x.reps,
+        startWeight: x.startWeight ?? 0,
+      }));
+
+      localStorage.setItem(getDayKey(i + 1), JSON.stringify(dayItems));
+      localStorage.removeItem(getRunKey(i + 1));
+    });
+
     localStorage.setItem(CURRENT_DAY_KEY, "1");
     localStorage.removeItem(PLAN_COMPLETE_KEY);
   };
@@ -102,6 +142,11 @@ export default function PlanPage() {
         </header>
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
+          <div className="space-y-1">
+            <div className="text-sm text-neutral-300 font-semibold">Lag selv</div>
+            <p className="text-xs text-neutral-500">Opprett en plan fra bunnen.</p>
+          </div>
+
           <div className="space-y-2">
             <label className="text-sm text-neutral-300">Navn på plan</label>
             <input
@@ -138,6 +183,22 @@ export default function PlanPage() {
           >
             Opprett plan
           </button>
+
+          <div className="pt-2 border-t border-neutral-800 space-y-2">
+            <div className="text-sm text-neutral-300 font-semibold">Eller bruk mal</div>
+            <div className="space-y-2">
+              {PLAN_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  onClick={() => createPlanFromTemplate(template)}
+                  className="w-full text-left rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 active:scale-[0.99]"
+                >
+                  <div className="font-semibold">{template.name}</div>
+                  <div className="text-xs text-neutral-400">{template.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );

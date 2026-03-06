@@ -207,7 +207,8 @@ export default function TodayPage() {
     // Teller hvor mange øvelser som fikk ny PR (vekt eller reps) i perioden "denne uka"
     const logs = readLogs();
 
-    const logsThisWeek = logs.filter((l) => l.weekIndex === weekIndex);
+    // Ikke i bruk for øyeblikket
+    // const logsThisWeek = logs.filter((l) => l.weekIndex === weekIndex);
 
     // best all time per øvelse (vekt og reps)
     const bestWeightByExercise = new Map<string, { value: number; week: number }>();

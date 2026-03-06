@@ -184,10 +184,33 @@ const setKgSafe = (n: number) => {
   setKg(String(n));
 };
 
+const roundKg = (n: number) => Number(n.toFixed(1));
+
 const applyLast = () => {
   if (!last) return;
   setKgSafe(last.performedWeight);
   setReps(String(last.performedReps));
+  setFormError("");
+};
+
+const suggestion = useMemo(() => {
+  if (!current || !last) return null;
+
+  const suggestedWeight =
+    last.performedReps >= current.reps
+      ? roundKg(last.performedWeight + 2.5)
+      : roundKg(last.performedWeight);
+
+  return {
+    weight: suggestedWeight,
+    reps: current.reps,
+  };
+}, [current, last]);
+
+const applySuggestion = () => {
+  if (!suggestion) return;
+  setKgSafe(suggestion.weight);
+  setReps(String(suggestion.reps));
   setFormError("");
 };
 
@@ -407,6 +430,21 @@ const bumpKg = (delta: number) => {
                 : "—"}
             </span>
           </div>
+
+          {suggestion && (
+            <div className="flex items-center justify-between gap-3 border-t border-neutral-800 pt-2 mt-2">
+              <span>
+                Forslag: {suggestion.weight} kg × {suggestion.reps}
+              </span>
+              <button
+                type="button"
+                onClick={applySuggestion}
+                className="px-3 py-1.5 rounded-lg border border-neutral-700 bg-neutral-950/60 text-neutral-200 text-xs font-semibold active:scale-[0.99]"
+              >
+                Bruk forslag
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

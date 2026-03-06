@@ -35,6 +35,11 @@ function formatDate(ts: number) {
   }
 }
 
+function formatWeight(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function volume(weight: number, reps: number) {
   if (!Number.isFinite(weight) || !Number.isFinite(reps)) return 0;
   if (weight <= 0 || reps <= 0) return 0;
@@ -87,7 +92,7 @@ function Sparkline({
           Trend (kg)
         </div>
         <div className="text-xs text-neutral-600">
-          {minV.toFixed(0)}–{maxV.toFixed(0)}
+          {formatWeight(minV)}–{formatWeight(maxV)}
         </div>
       </div>
 
@@ -389,7 +394,7 @@ export default function ProgressPage() {
               Beste vekt
             </div>
             <div className="text-2xl font-bold mt-1">
-              {stats.bestWeight.toFixed(0)}{" "}
+              {formatWeight(stats.bestWeight)}{" "}
               <span className="text-neutral-400 text-base">kg</span>
             </div>
           </div>
@@ -474,7 +479,7 @@ export default function ProgressPage() {
                         {formatDate(e.timestamp)}
                       </div>
                       <div className="text-sm font-semibold">
-                        {e.performedWeight.toFixed(0)} kg ×{" "}
+                        {formatWeight(e.performedWeight)} kg ×{" "}
                         {e.performedReps.toFixed(0)}
                       </div>
                     </div>

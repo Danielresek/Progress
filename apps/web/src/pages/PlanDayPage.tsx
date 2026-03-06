@@ -35,6 +35,7 @@ export default function PlanDayPage() {
 
   // for å unngå at setTimeout bygger seg opp
   const saveTimeoutRef = useRef<number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Hjelpefunksjon: lagrer til localStorage
   const persist = (next: DayExercise[]) => {
@@ -122,6 +123,11 @@ export default function PlanDayPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    searchInputRef.current?.focus();
+  }, [pickerOpen]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -233,6 +239,44 @@ export default function PlanDayPage() {
           </div>
         )}
       </header>
+
+      {pickerOpen && (
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 backdrop-blur p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold">Velg øvelse</div>
+            <button
+              onClick={() => {
+                setPickerOpen(false);
+                setQuery("");
+              }}
+              className="text-sm text-neutral-300"
+            >
+              Lukk
+            </button>
+          </div>
+
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Søk… (f.eks benk)"
+            className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
+          />
+
+          <div className="max-h-80 overflow-auto space-y-2">
+            {filtered.map((e) => (
+              <button
+                key={e.id}
+                onClick={() => addExercise(e)}
+                className="w-full text-left rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 active:scale-[0.99]"
+              >
+                <div className="font-semibold">{e.name}</div>
+                <div className="text-xs text-neutral-400">{e.muscleGroup}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
         <div className="flex items-center justify-between">
@@ -372,42 +416,6 @@ export default function PlanDayPage() {
         )}
       </div>
 
-      {pickerOpen && (
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 backdrop-blur p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold">Velg øvelse</div>
-            <button
-              onClick={() => {
-                setPickerOpen(false);
-                setQuery("");
-              }}
-              className="text-sm text-neutral-300"
-            >
-              Lukk
-            </button>
-          </div>
-
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Søk… (f.eks benk)"
-            className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white placeholder:text-neutral-600"
-          />
-
-          <div className="max-h-80 overflow-auto space-y-2">
-            {filtered.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => addExercise(e)}
-                className="w-full text-left rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 active:scale-[0.99]"
-              >
-                <div className="font-semibold">{e.name}</div>
-                <div className="text-xs text-neutral-400">{e.muscleGroup}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
