@@ -1,77 +1,156 @@
-# Progress Workout App – Copilot Instructions
+# Copilot Instructions
 
-This repository contains a mobile-first workout tracking web application.
+## Project Overview
 
-## Tech Stack
+This repository contains a full-stack workout tracking application.
 
-- React
-- TypeScript
-- TailwindCSS
-- Vite
-- Auth0 for authentication
-- LocalStorage for temporary persistence
+The app is designed primarily for **mobile usage** and focuses on simple strength training tracking with progression features.
 
-A backend API will be added later, so avoid tightly coupling logic to localStorage.
+Users can:
 
-## Project Structure
+- create workout plans
+- log exercises
+- track progress
+- view strength score
+- track weekly streaks
 
-apps/web/src
+---
 
+# Architecture
+
+The application follows a simple full-stack structure:
+
+Frontend:
+React + TypeScript + Tailwind
+
+Backend:
+.NET Web API + Entity Framework Core
+
+Database:
+PostgreSQL (hosted on Render)
+
+Auth:
+Auth0 with JWT access tokens
+
+Flow:
+
+React frontend
+↓
+.NET API
+↓
+PostgreSQL database
+
+---
+
+# Frontend Structure
+
+Main frontend folders:
+
+src/
 pages/
-
-- TodayPage.tsx
-- TodayRunPage.tsx
-- PlanPage.tsx
-- PlanDayPage.tsx
-- ProgressPage.tsx
-
 components/
-
-- AppShell.tsx
-- BottomNav.tsx
-- ProtectedRoute.tsx
-
 data/
+storage/
+types.ts
 
-- exercises.ts
+Important:
 
-## Data Storage
+Pages should not interact with localStorage directly.
 
-Currently stored in localStorage:
+All storage logic must go through:
 
-- workouttracker.logs.v1
-- workouttracker.plan.v1
-- workouttracker.weekIndex.v1
+storage/
 
-These will later be migrated to a backend.
+- planStorage
+- logStorage
+- statsStorage
 
-## Coding Guidelines
+This abstraction allows replacing localStorage with API calls later.
 
-When modifying code:
+---
 
-- Keep solutions simple.
-- Avoid unnecessary refactoring.
-- Do not modify unrelated files.
-- Do not introduce new dependencies unless explicitly asked.
-- Prefer small changes inside existing files.
-- Preserve existing UI layout and Tailwind styling.
-- Follow existing TypeScript patterns used in the project.
+# Backend Structure
 
-## Feature Development
+Backend is located in:
 
-When implementing new features:
+apps/api
 
-1. Reuse existing data structures.
-2. Prefer adding logic over restructuring architecture.
-3. Keep changes minimal and readable.
-4. Maintain compatibility with localStorage data.
+The API uses:
 
-## Goal of the Project
+- ASP.NET Core
+- Entity Framework Core
+- PostgreSQL
 
-The goal is to build a clean, simple workout tracking app focused on:
+Authentication is handled via Auth0 JWT tokens.
 
-- logging workouts quickly
-- tracking PRs
-- weekly progress
+The user id is extracted from the token and used as `UserId` in database models.
+
+---
+
+# Backend Domain Models
+
+Main entities:
+
+Plan
+PlanDay
+PlanDayExercise
+WorkoutLog
+UserProgress
+
+These represent:
+
+User plan
+Workout structure
+Exercise configuration
+Workout history
+User training progress
+
+Derived statistics such as:
+
 - strength score
-- progression suggestions
+- PRs
+- weekly stats
+- trends
+
+should NOT be stored in the database.  
+They should be calculated from workout logs.
+
+---
+
+# Coding Guidelines
+
+When generating code:
+
+- prefer simple and readable implementations
+- avoid unnecessary abstractions
+- avoid introducing new dependencies unless necessary
+- follow existing project structure
+- keep models simple
+- prefer explicit types
+
+Frontend:
+
+- mobile-first UI
+- minimal UI complexity
+- Tailwind-based styling
+- keep components simple
+
+Backend:
+
+- simple REST endpoints
+- minimal logic in controllers
+- use EF Core entities
+- keep services clean and focused
+
+---
+
+# Important Rules
+
+Copilot should:
+
+- respect existing architecture
+- not refactor unrelated code
+- not introduce heavy frameworks
+- not move files unnecessarily
+
+Focus on incremental improvements and clear structure.

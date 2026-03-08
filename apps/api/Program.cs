@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using WorkoutApp.Data;
 using System.Security.Claims;
+using WorkoutApp.Dtos;
 using WorkoutApp.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -95,6 +96,81 @@ app.MapPost("/workouts", async (AppDbContext db, ClaimsPrincipal user, WorkoutCr
     await db.SaveChangesAsync();
 
     return Results.Created($"/workouts/{workout.Id}", workout);
+})
+.RequireAuthorization();
+
+app.MapGet("/api/plans/active", async (AppDbContext db, ClaimsPrincipal user) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var activePlan = await db.Plans
+        .Include(p => p.Days)
+            .ThenInclude(d => d.Exercises)
+        .FirstOrDefaultAsync(p => p.UserId == sub && p.IsActive);
+
+    if (activePlan is null)
+        return Results.NotFound();
+
+    return Results.Ok(PlanMappings.MapPlanResponse(activePlan));
+})
+.RequireAuthorization();
+
+app.MapPost("/api/plans", async (AppDbContext db, ClaimsPrincipal user, CreatePlanRequest request) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var activePlans = await db.Plans
+        .Where(p => p.UserId == sub && p.IsActive)
+        .ToListAsync();
+
+    foreach (var existingActivePlan in activePlans)
+    {
+        existingActivePlan.IsActive = false;
+        existingActivePlan.UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    var plan = new Plan
+    {
+        UserId = sub,
+        Name = request.Name,
+        IsActive = true,
+        CreatedAtUtc = DateTime.UtcNow,
+        UpdatedAtUtc = DateTime.UtcNow,
+        Days = request.Days.Select(day => new PlanDay
+        {
+            Name = day.Name,
+            DayIndex = day.DayIndex,
+            Exercises = day.Exercises.Select(exercise => new PlanDayExercise
+            {
+                ExerciseId = exercise.ExerciseId,
+                ExerciseName = exercise.ExerciseName,
+                SortOrder = exercise.SortOrder,
+                Sets = exercise.Sets,
+                Reps = exercise.Reps,
+                StartWeight = exercise.StartWeight
+            }).ToList()
+        }).ToList()
+    };
+
+    db.Plans.Add(plan);
+    await db.SaveChangesAsync();
+
+    var createdPlan = await db.Plans
+        .Include(p => p.Days)
+            .ThenInclude(d => d.Exercises)
+        .FirstAsync(p => p.Id == plan.Id);
+
+    return Results.Created($"/api/plans/{createdPlan.Id}", PlanMappings.MapPlanResponse(createdPlan));
 })
 .RequireAuthorization();
 
