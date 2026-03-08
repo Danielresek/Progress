@@ -174,6 +174,57 @@ app.MapPost("/api/plans", async (AppDbContext db, ClaimsPrincipal user, CreatePl
 })
 .RequireAuthorization();
 
+app.MapGet("/api/logs", async (AppDbContext db, ClaimsPrincipal user) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var logs = await db.WorkoutLogs
+        .Where(log => log.UserId == sub)
+        .OrderByDescending(log => log.LoggedAtUtc)
+        .ToListAsync();
+
+    var response = logs
+        .Select(WorkoutLogMappings.MapWorkoutLogResponse)
+        .ToList();
+
+    return Results.Ok(response);
+})
+.RequireAuthorization();
+
+app.MapPost("/api/logs", async (AppDbContext db, ClaimsPrincipal user, CreateWorkoutLogRequest request) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var log = new WorkoutLog
+    {
+        UserId = sub,
+        PlanDayId = request.PlanDayId,
+        PlanDayName = request.PlanDayName,
+        ExerciseId = request.ExerciseId,
+        ExerciseName = request.ExerciseName,
+        PerformedWeight = request.PerformedWeight,
+        PerformedReps = request.PerformedReps,
+        WeekIndex = request.WeekIndex,
+        LoggedAtUtc = DateTime.UtcNow
+    };
+
+    db.WorkoutLogs.Add(log);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/logs/{log.Id}", WorkoutLogMappings.MapWorkoutLogResponse(log));
+})
+.RequireAuthorization();
+
 app.Run();
 
 public record WorkoutCreateDto(string Title, DateTime? DateUtc);
