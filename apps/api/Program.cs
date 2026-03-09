@@ -56,6 +56,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/", () => Results.Ok("backend alive"));
 app.MapGet("/health", () => Results.Ok("OK"));
 
 // Test endpoint: requires token
