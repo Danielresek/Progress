@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { DayExercise, LogEntry, Plan } from "../types";
+import { useWorkoutApi } from "../api/useWorkoutApi";
 import {
   clearPlanComplete,
   clearRunState,
@@ -25,6 +26,7 @@ export default function TodayRunPage() {
   const navigate = useNavigate();
   const params = useParams();
   const dayId = Number(params.dayId || "1");
+  const { getActivePlan, createLog } = useWorkoutApi();
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [items, setItems] = useState<DayExercise[]>([]);
@@ -151,6 +153,38 @@ const bumpKg = (delta: number) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kg, reps, current?.exerciseId]);
 
+  const saveLogToBackend = async (payload: {
+    dayIndex: number;
+    exercise: DayExercise;
+    performedWeight: number;
+    performedReps: number;
+    weekIndex: number;
+  }) => {
+    try {
+      const activePlan = await getActivePlan();
+      const planDay = activePlan.days.find((day) => day.dayIndex === payload.dayIndex);
+
+      if (!planDay) {
+        console.error(
+          `Failed to create backend log: no active plan day found for dayIndex=${payload.dayIndex}`
+        );
+        return;
+      }
+
+      await createLog({
+        planDayId: planDay.id,
+        planDayName: planDay.name,
+        exerciseId: payload.exercise.exerciseId,
+        exerciseName: payload.exercise.name,
+        performedWeight: payload.performedWeight,
+        performedReps: payload.performedReps,
+        weekIndex: payload.weekIndex,
+      });
+    } catch (error) {
+      console.error("Failed to create workout log in backend", error);
+    }
+  };
+
   const saveAndNext = () => {
     if (!current) return;
 
@@ -174,6 +208,15 @@ const bumpKg = (delta: number) => {
     };
 
     addLogEntry(entry);
+
+    // Keep local save flow as source of truth for now; backend sync is best-effort.
+    void saveLogToBackend({
+      dayIndex: dayId,
+      exercise: current,
+      performedWeight,
+      performedReps,
+      weekIndex,
+    });
 
     // reset inputs + error
     setKg("");

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { EXERCISES } from "../data/exercises";
+import { useWorkoutApi } from "../api/useWorkoutApi";
 import type { LogEntry } from "../types";
-import { clearLogs, getLogs } from "../storage/logStorage";
+import type { WorkoutLogResponse } from "../api/workoutApi";
+import { clearLogs } from "../storage/logStorage";
 
 function formatDate(ts: number) {
   try {
@@ -93,9 +95,46 @@ function Sparkline({
 export default function ProgressPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
+  const { getLogs } = useWorkoutApi();
+
+  const mapApiLogToLocalLog = (log: WorkoutLogResponse): LogEntry => {
+    const parsedTs = Date.parse(log.loggedAtUtc);
+    const dayMatch = log.planDayName.match(/(\d+)$/);
+    const parsedDay = dayMatch ? Number(dayMatch[1]) : NaN;
+
+    return {
+      dayId: Number.isFinite(parsedDay) && parsedDay > 0 ? parsedDay : 1,
+      exerciseId: log.exerciseId,
+      performedWeight: log.performedWeight,
+      performedReps: log.performedReps,
+      timestamp: Number.isFinite(parsedTs) ? parsedTs : Date.now(),
+      weekIndex: log.weekIndex,
+    };
+  };
 
   useEffect(() => {
-    setLogs(getLogs());
+    let cancelled = false;
+
+    const loadLogs = async () => {
+      try {
+        const apiLogs = await getLogs();
+        if (!cancelled) {
+          setLogs(apiLogs.map(mapApiLogToLocalLog));
+        }
+      } catch (error) {
+        console.error("Failed to load workout logs", error);
+        if (!cancelled) {
+          setLogs([]);
+        }
+      }
+    };
+
+    loadLogs();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // map id -> name

@@ -2,6 +2,8 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { EXERCISES } from "../data/exercises";
 import { PLAN_TEMPLATES, type PlanTemplate } from "../data/templates";
+import { useWorkoutApi } from "../api/useWorkoutApi";
+import type { CreatePlanRequest, PlanResponse } from "../api/workoutApi";
 import type { DayExercise, Plan } from "../types";
 import {
   clearCurrentDay,
@@ -17,6 +19,7 @@ import {
 
 export default function PlanPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
+  const { createPlan } = useWorkoutApi();
 
   // form state
   const [planName, setPlanName] = useState("");
@@ -40,35 +43,68 @@ export default function PlanPage() {
     savePlan(plan);
   }, [plan]);
 
-  const createPlan = () => {
-    const name = planName.trim() || "My workout plan";
+  const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => {
+    const orderedDays = [...apiPlan.days].sort((a, b) => a.dayIndex - b.dayIndex);
 
-    setPlan({
-      name,
-      days: Array.from({ length: dayCount }, (_, i) => `Workout ${i + 1}`),
-    });
+    return {
+      name: apiPlan.name,
+      days: orderedDays.map((day) => day.name),
+    };
+  };
+
+  const createManualPayload = (name: string, workouts: number): CreatePlanRequest => ({
+    name,
+    days: Array.from({ length: workouts }, (_, i) => ({
+      name: `Workout ${i + 1}`,
+      dayIndex: i + 1,
+      exercises: [],
+    })),
+  });
+
+  const createTemplatePayload = (template: PlanTemplate): CreatePlanRequest => ({
+    name: template.name,
+    days: template.days.map((day, dayIndex) => ({
+      name: day.name,
+      dayIndex: dayIndex + 1,
+      exercises: day.exercises.map((exercise, exerciseIndex) => ({
+        exerciseId: exercise.exerciseId,
+        exerciseName: exerciseNameById.get(exercise.exerciseId) ?? exercise.exerciseId,
+        sortOrder: exerciseIndex + 1,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        startWeight: exercise.startWeight ?? 0,
+      })),
+    })),
+  });
+
+  const createManualPlan = async () => {
+    const name = planName.trim() || "My workout plan";
+    const payload = createManualPayload(name, dayCount);
+    const createdPlan = await createPlan(payload);
+
+    setPlan(mapApiPlanToLocalPlan(createdPlan));
 
     // When creating a new plan: start sequence at 1
     setCurrentDay(1);
     clearPlanComplete();
   };
 
-  const createPlanFromTemplate = (template: PlanTemplate) => {
-    const nextPlan: Plan = {
-      name: template.name,
-      days: template.days.map((d) => d.name),
-    };
+  const createTemplatePlan = async (template: PlanTemplate) => {
+    const payload = createTemplatePayload(template);
+    const createdPlan = await createPlan(payload);
 
-    setPlan(nextPlan);
+    setPlan(mapApiPlanToLocalPlan(createdPlan));
 
-    template.days.forEach((day, i) => {
-      const dayItems: DayExercise[] = day.exercises.map((x) => ({
-        exerciseId: x.exerciseId,
-        name: exerciseNameById.get(x.exerciseId) ?? x.exerciseId,
-        sets: x.sets,
-        reps: x.reps,
-        startWeight: x.startWeight ?? 0,
-      }));
+    createdPlan.days.forEach((day, i) => {
+      const dayItems: DayExercise[] = [...day.exercises]
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((x) => ({
+          exerciseId: x.exerciseId,
+          name: x.exerciseName,
+          sets: x.sets,
+          reps: x.reps,
+          startWeight: x.startWeight,
+        }));
 
       saveDayExercises(i + 1, dayItems);
       clearRunState(i + 1);
@@ -76,6 +112,20 @@ export default function PlanPage() {
 
     setCurrentDay(1);
     clearPlanComplete();
+  };
+
+  const handleCreateManualPlan = () => {
+    createManualPlan().catch((error) => {
+      console.error("Failed to create manual plan", error);
+      window.alert("Could not create plan right now. Please try again.");
+    });
+  };
+
+  const handleCreateTemplatePlan = (template: PlanTemplate) => {
+    createTemplatePlan(template).catch((error) => {
+      console.error("Failed to create template plan", error);
+      window.alert("Could not create plan right now. Please try again.");
+    });
   };
 
   const resetPlan = () => {
@@ -156,7 +206,7 @@ export default function PlanPage() {
           </div>
 
           <button
-            onClick={createPlan}
+            onClick={handleCreateManualPlan}
             className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
           >
             Create plan
@@ -168,7 +218,7 @@ export default function PlanPage() {
               {PLAN_TEMPLATES.map((template) => (
                 <button
                   key={template.id}
-                  onClick={() => createPlanFromTemplate(template)}
+                  onClick={() => handleCreateTemplatePlan(template)}
                   className="w-full text-left rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 active:scale-[0.99]"
                 >
                   <div className="font-semibold">{template.name}</div>

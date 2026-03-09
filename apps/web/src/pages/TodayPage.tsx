@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
-import type { DayExercise, LogEntry, Plan, WeekCompletion } from "../types";
+import type { DayExercise, Plan } from "../types";
+import { useWorkoutApi } from "../api/useWorkoutApi";
+import type { PlanResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
   getCurrentDay,
   getDayExercises,
-  getPlan,
   isPlanComplete,
   setCurrentDay,
 } from "../storage/planStorage";
@@ -24,8 +25,10 @@ import {
 
 export default function TodayPage() {
   const navigate = useNavigate();
+  const { getActivePlan } = useWorkoutApi();
 
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [dayId, setDayId] = useState<number>(1);
   const [dayItems, setDayItems] = useState<DayExercise[]>([]);
   const [planComplete, setPlanComplete] = useState<boolean>(false);
@@ -46,7 +49,47 @@ export default function TodayPage() {
 
   // 1) Read active plan
   useEffect(() => {
-    setPlan(getPlan());
+    let cancelled = false;
+
+    const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => ({
+      name: apiPlan.name,
+      days: apiPlan.days
+        .slice()
+        .sort((a, b) => a.dayIndex - b.dayIndex)
+        .map((d) => d.name),
+    });
+
+    const loadActivePlan = async () => {
+      setIsPlanLoading(true);
+
+      try {
+        const apiPlan = await getActivePlan();
+        if (!cancelled) {
+          setPlan(mapApiPlanToLocalPlan(apiPlan));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const isNotFound = message.includes("(404");
+
+        if (!cancelled) {
+          if (!isNotFound) {
+            console.error("Failed to load active plan", error);
+          }
+          setPlan(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsPlanLoading(false);
+        }
+      }
+    };
+
+    loadActivePlan();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Read whether the plan is complete
@@ -199,6 +242,17 @@ export default function TodayPage() {
   };
 
   // If no active plan
+  if (isPlanLoading) {
+    return (
+      <div className="space-y-4">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">Today</h1>
+          <p className="text-neutral-400 text-sm">Loading active plan...</p>
+        </header>
+      </div>
+    );
+  }
+
   if (!plan) {
     return (
       <div className="space-y-4">
