@@ -5,17 +5,21 @@ import { Auth0Provider } from "@auth0/auth0-react";
 import App from "./App";
 import "./index.css";
 
+const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN as string;
+const auth0ClientId = import.meta.env.VITE_AUTH0_CLIENT_ID as string;
+const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE as string;
+
 function Auth0ProviderWithNavigate({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
 
   return (
     <Auth0Provider
-      domain="dev-p2xu7qni4a01fbfr.us.auth0.com"
-      clientId="xmXKKh7Q8iwk3eFsJ5tcvhk1XZ0y9j0v"
+      domain={auth0Domain}
+      clientId={auth0ClientId}
       cacheLocation="localstorage"
       authorizationParams={{
         redirect_uri: `${window.location.origin}/callback`,
-        audience: "https://workouttracker-api",
+        audience: auth0Audience,
       }}
       onRedirectCallback={(appState) => {
         const stored = sessionStorage.getItem("wt.returnTo");
