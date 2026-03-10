@@ -42,14 +42,6 @@ builder.Services
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
-
-app.Use(async (context, next) =>
-{
-    Console.WriteLine($"REQUEST: {context.Request.Method} {context.Request.Path}");
-    await next();
-    Console.WriteLine($"RESPONSE: {context.Response.StatusCode} {context.Request.Path}");
-});
-
 app.UseCors();
 
 // Pipeline
