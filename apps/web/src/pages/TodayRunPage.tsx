@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { DayExercise, LogEntry, Plan } from "../types";
 import { useWorkoutApi } from "../api/useWorkoutApi";
+import type { PlanResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
@@ -29,6 +30,7 @@ export default function TodayRunPage() {
   const { getActivePlan, createLog } = useWorkoutApi();
 
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
   const [items, setItems] = useState<DayExercise[]>([]);
   const [index, setIndex] = useState<number>(0);
 
@@ -42,6 +44,34 @@ export default function TodayRunPage() {
     setPlan(getPlan());
   }, []);
 
+  // Load active plan from backend
+  useEffect(() => {
+    let cancelled = false;
+
+    getActivePlan()
+      .then((nextPlan) => {
+        if (cancelled) return;
+        setActivePlan(nextPlan);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("(404")) {
+          setActivePlan(null);
+          return;
+        }
+
+        console.error("Failed to load active plan", error);
+        setActivePlan(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const dayTitle = useMemo(() => {
     if (!plan?.days?.length) return `Workout ${dayId}`;
     return plan.days[dayId - 1] ?? `Workout ${dayId}`;
@@ -49,8 +79,29 @@ export default function TodayRunPage() {
 
   // Load exercises for the day
   useEffect(() => {
-    setItems(getDayExercises(dayId));
-  }, [dayId]);
+    if (!activePlan) {
+      setItems(getDayExercises(dayId));
+      return;
+    }
+
+    const day = activePlan.days.find((d) => d.dayIndex === dayId);
+    if (!day) {
+      setItems([]);
+      return;
+    }
+
+    const mappedItems: DayExercise[] = [...day.exercises]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((exercise) => ({
+        exerciseId: exercise.exerciseId,
+        name: exercise.exerciseName,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        startWeight: exercise.startWeight,
+      }));
+
+    setItems(mappedItems);
+  }, [activePlan, dayId]);
 
   // Load "how far you got" in the workout (index)
   useEffect(() => {
