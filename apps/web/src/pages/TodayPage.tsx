@@ -66,17 +66,17 @@ export default function TodayPage() {
       try {
         const apiPlan = await getActivePlan();
         if (!cancelled) {
-          setActivePlan(apiPlan);
-          setPlan(mapApiPlanToLocalPlan(apiPlan));
+          if (!apiPlan) {
+            setActivePlan(null);
+            setPlan(null);
+          } else {
+            setActivePlan(apiPlan);
+            setPlan(mapApiPlanToLocalPlan(apiPlan));
+          }
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        const isNotFound = message.includes("(404");
-
         if (!cancelled) {
-          if (!isNotFound) {
-            console.error("Failed to load active plan", error);
-          }
+          console.error("Failed to load active plan", error);
           setActivePlan(null);
           setPlan(null);
         }

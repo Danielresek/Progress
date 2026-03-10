@@ -56,12 +56,6 @@ export default function TodayRunPage() {
       .catch((error) => {
         if (cancelled) return;
 
-        const message = error instanceof Error ? error.message : "";
-        if (message.includes("(404")) {
-          setActivePlan(null);
-          return;
-        }
-
         console.error("Failed to load active plan", error);
         setActivePlan(null);
       });
@@ -213,6 +207,9 @@ const bumpKg = (delta: number) => {
   }) => {
     try {
       const activePlan = await getActivePlan();
+      if (!activePlan) {
+        return;
+      }
       const planDay = activePlan.days.find((day) => day.dayIndex === payload.dayIndex);
 
       if (!planDay) {

@@ -44,13 +44,14 @@ export default function PlanPage() {
     getActivePlan()
       .then((activePlan) => {
         if (cancelled) return;
+        if (!activePlan) {
+          setPlan(null);
+          return;
+        }
         setPlan(mapApiPlanToLocalPlan(activePlan));
       })
       .catch((error) => {
         if (cancelled) return;
-
-        const message = error instanceof Error ? error.message : "";
-        if (message.includes("404")) return;
 
         console.error("Failed to load active plan", error);
       });
