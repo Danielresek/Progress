@@ -82,6 +82,12 @@ export function createPlan(
   });
 }
 
+export function resetActivePlan(token: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/api/plans/reset", token, {
+    method: "POST",
+  });
+}
+
 export function getLogs(token: string): Promise<WorkoutLogResponse[]> {
   return apiFetch<WorkoutLogResponse[]>("/api/logs", token, {
     method: "GET",

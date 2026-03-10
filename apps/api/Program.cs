@@ -180,6 +180,29 @@ app.MapPost("/api/plans", async (AppDbContext db, ClaimsPrincipal user, CreatePl
 })
 .RequireAuthorization();
 
+app.MapPost("/api/plans/reset", async (AppDbContext db, ClaimsPrincipal user) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var activePlan = await db.Plans
+        .FirstOrDefaultAsync(p => p.UserId == sub && p.IsActive);
+
+    if (activePlan is not null)
+    {
+        activePlan.IsActive = false;
+        activePlan.UpdatedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    return Results.Ok(new { success = true });
+})
+.RequireAuthorization();
+
 app.MapGet("/api/logs", async (AppDbContext db, ClaimsPrincipal user) =>
 {
     var sub =

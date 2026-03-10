@@ -19,7 +19,7 @@ import {
 
 export default function PlanPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
-  const { createPlan, getActivePlan } = useWorkoutApi();
+  const { createPlan, getActivePlan, resetActivePlan } = useWorkoutApi();
 
   // form state
   const [planName, setPlanName] = useState("");
@@ -151,11 +151,19 @@ export default function PlanPage() {
     });
   };
 
-  const resetPlan = () => {
+  const resetPlan = async () => {
     const ok = window.confirm(
       "This will delete the plan and all workouts/exercises. Are you sure?"
     );
     if (!ok) return;
+
+    try {
+      await resetActivePlan();
+    } catch (error) {
+      console.error("Failed to reset active plan", error);
+      window.alert("Could not reset plan right now. Please try again.");
+      return;
+    }
 
     const daysCount = plan?.days?.length ?? 0;
 
