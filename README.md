@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/logo.png" width="220">
+  <img src="apps/web/public/logo.svg" width="220">
 </p>
 
 <h1 align="center">Progress</h1>
@@ -114,7 +114,7 @@ https://progress-track.com
 
 ### Workout Logging
 
-![Workout](apps/web/screenshots/today.png)
+![Workout](apps/web/screenshots/Today.png)
 
 ### Workout Logging 2
 
@@ -122,6 +122,6 @@ https://progress-track.com
 
 ### Progress Tracking
 
-![Progress](apps/web/screenshots/progress.png)
+![Progress](apps/web/screenshots/Progress.png)
 
 ---
