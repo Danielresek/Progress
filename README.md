@@ -2,8 +2,6 @@
   <img src="apps/web/public/logo.svg" width="220">
 </p>
 
-<h1 align="center">Progress</h1>
-
 <p align="center">
 A modern workout tracker for planning workouts, logging sets, and tracking strength progress over time.
 </p>
