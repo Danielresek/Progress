@@ -19,6 +19,7 @@ import {
 
 export default function PlanPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [isPlanLoading, setIsPlanLoading] = useState(true);
   const { createPlan, getActivePlan, resetActivePlan } = useWorkoutApi();
 
   // form state
@@ -41,6 +42,8 @@ export default function PlanPage() {
   useEffect(() => {
     let cancelled = false;
 
+    setIsPlanLoading(true);
+
     getActivePlan()
       .then((activePlan) => {
         if (cancelled) return;
@@ -54,12 +57,27 @@ export default function PlanPage() {
         if (cancelled) return;
 
         console.error("Failed to load active plan", error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsPlanLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  if (isPlanLoading && !plan) {
+    return (
+      <div className="space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">Plan</h1>
+          <p className="text-neutral-400 text-sm">Loading active plan...</p>
+        </header>
+      </div>
+    );
+  }
 
   // Persist plan to localStorage when it changes
   useEffect(() => {
