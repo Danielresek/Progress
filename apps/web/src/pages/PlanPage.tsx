@@ -19,7 +19,7 @@ import {
 
 export default function PlanPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
-  const { createPlan } = useWorkoutApi();
+  const { createPlan, getActivePlan } = useWorkoutApi();
 
   // form state
   const [planName, setPlanName] = useState("");
@@ -35,6 +35,29 @@ export default function PlanPage() {
   // Load plan from localStorage on mount
   useEffect(() => {
     setPlan(getPlan());
+  }, []);
+
+  // Load active plan from backend on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    getActivePlan()
+      .then((activePlan) => {
+        if (cancelled) return;
+        setPlan(mapApiPlanToLocalPlan(activePlan));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("404")) return;
+
+        console.error("Failed to load active plan", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Persist plan to localStorage when it changes

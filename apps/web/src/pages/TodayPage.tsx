@@ -28,6 +28,7 @@ export default function TodayPage() {
   const { getActivePlan } = useWorkoutApi();
 
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [dayId, setDayId] = useState<number>(1);
   const [dayItems, setDayItems] = useState<DayExercise[]>([]);
@@ -65,6 +66,7 @@ export default function TodayPage() {
       try {
         const apiPlan = await getActivePlan();
         if (!cancelled) {
+          setActivePlan(apiPlan);
           setPlan(mapApiPlanToLocalPlan(apiPlan));
         }
       } catch (error) {
@@ -75,6 +77,7 @@ export default function TodayPage() {
           if (!isNotFound) {
             console.error("Failed to load active plan", error);
           }
+          setActivePlan(null);
           setPlan(null);
         }
       } finally {
@@ -120,10 +123,32 @@ export default function TodayPage() {
     }
   }, [plan, dayId]);
 
-  // Read exercises for the "next workout"
+  // Read exercises for the "next workout" from backend active plan
   useEffect(() => {
-    setDayItems(getDayExercises(dayId));
-  }, [dayId]);
+    if (!activePlan) {
+      setDayItems(getDayExercises(dayId));
+      return;
+    }
+
+    const day = activePlan.days.find((d) => d.dayIndex === dayId);
+
+    if (!day) {
+      setDayItems([]);
+      return;
+    }
+
+    const items: DayExercise[] = [...day.exercises]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((exercise) => ({
+        exerciseId: exercise.exerciseId,
+        name: exercise.exerciseName,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        startWeight: exercise.startWeight,
+      }));
+
+    setDayItems(items);
+  }, [activePlan, dayId]);
 
   const dayTitle = useMemo(() => {
     if (!plan?.days?.length) return `Workout ${dayId}`;
