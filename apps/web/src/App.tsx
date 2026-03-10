@@ -25,7 +25,7 @@ function AuthedLayout() {
   const showNav = !isLoading && isAuthenticated && !hideNavForPath;
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white flex justify-center">
+    <div className="min-h-dvh bg-neutral-950 text-white flex justify-center">
       <div className="w-full max-w-md relative">
         <AppShell>
           <Outlet />

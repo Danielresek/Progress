@@ -7,7 +7,7 @@ type Props = {
 
 export default function AppShell({ children }: Props) {
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
+    <div className="min-h-dvh bg-neutral-950 text-white">
       {/* Top header */}
       <header className="pt-7 pb-3">
         <img

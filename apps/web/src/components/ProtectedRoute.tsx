@@ -11,7 +11,7 @@ export default function ProtectedRoute({ children }: Props) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-neutral-950 text-white flex items-center justify-center p-6">
         <div className="text-neutral-300">Laster…</div>
       </div>
     );
@@ -21,7 +21,7 @@ export default function ProtectedRoute({ children }: Props) {
     const returnTo = location.pathname + location.search;
 
     return (
-      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-neutral-950 text-white flex items-center justify-center p-6">
         <div className="w-full max-w-md text-center">
           <img
             src={logo}
