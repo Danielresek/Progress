@@ -6,6 +6,10 @@ export default defineConfig({
   preview: {
     host: "0.0.0.0",
     port: 10000,
-    allowedHosts: ["progress-frontend.onrender.com"],
+    allowedHosts: [
+    "progress-frontend.onrender.com",
+    "progress-track.com",
+    "www.progress-track.com",
+  ],
   },
 });
