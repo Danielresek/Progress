@@ -95,7 +95,7 @@ function Sparkline({
 export default function ProgressPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
-  const { getLogs } = useWorkoutApi();
+  const { getLogs, resetLogs: resetLogsRequest } = useWorkoutApi();
 
   const mapApiLogToLocalLog = (log: WorkoutLogResponse): LogEntry => {
     const parsedTs = Date.parse(log.loggedAtUtc);
@@ -307,11 +307,19 @@ export default function ProgressPage() {
     return lastN.map((x) => x.performedWeight);
   }, [entries]);
 
-  const resetLogs = () => {
+  const resetLogs = async () => {
     const ok = window.confirm(
       "This deletes all history and PR data. Cannot be undone.\n\nDo you want to continue?"
     );
     if (!ok) return;
+
+    try {
+      await resetLogsRequest();
+    } catch (error) {
+      console.error("Failed to reset workout logs", error);
+      window.alert("Could not reset data right now. Please try again.");
+      return;
+    }
 
     clearLogs();
     setLogs([]);

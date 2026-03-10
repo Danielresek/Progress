@@ -4,6 +4,7 @@ import {
   createPlan as createPlanRequest,
   getActivePlan as getActivePlanRequest,
   getLogs as getLogsRequest,
+  resetLogs as resetLogsRequest,
   resetActivePlan as resetActivePlanRequest,
   type CreatePlanRequest,
   type CreateWorkoutLogRequest,
@@ -47,6 +48,11 @@ export function useWorkoutApi() {
     return getLogsRequest(token);
   }
 
+  async function resetLogs(): Promise<void> {
+    const token = await getToken();
+    await resetLogsRequest(token);
+  }
+
   async function createLog(
     payload: CreateWorkoutLogRequest
   ): Promise<WorkoutLogResponse> {
@@ -59,6 +65,7 @@ export function useWorkoutApi() {
     createPlan,
     resetActivePlan,
     getLogs,
+    resetLogs,
     createLog,
   };
 }

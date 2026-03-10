@@ -225,6 +225,29 @@ app.MapGet("/api/logs", async (AppDbContext db, ClaimsPrincipal user) =>
 })
 .RequireAuthorization();
 
+app.MapPost("/api/logs/reset", async (AppDbContext db, ClaimsPrincipal user) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var logs = await db.WorkoutLogs
+        .Where(log => log.UserId == sub)
+        .ToListAsync();
+
+    if (logs.Count > 0)
+    {
+        db.WorkoutLogs.RemoveRange(logs);
+        await db.SaveChangesAsync();
+    }
+
+    return Results.Ok(new { success = true });
+})
+.RequireAuthorization();
+
 app.MapPost("/api/logs", async (AppDbContext db, ClaimsPrincipal user, CreateWorkoutLogRequest request) =>
 {
     var sub =

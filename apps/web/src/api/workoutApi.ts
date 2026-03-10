@@ -94,6 +94,12 @@ export function getLogs(token: string): Promise<WorkoutLogResponse[]> {
   });
 }
 
+export function resetLogs(token: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/api/logs/reset", token, {
+    method: "POST",
+  });
+}
+
 export function createLog(
   token: string,
   payload: CreateWorkoutLogRequest
