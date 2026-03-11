@@ -68,6 +68,12 @@ export default function PlanPage() {
     };
   }, []);
 
+  // Persist plan to localStorage when it changes
+  useEffect(() => {
+    if (!plan) return;
+    savePlan(plan);
+  }, [plan]);
+
   if (isPlanLoading && !plan) {
     return (
       <div className="space-y-6">
@@ -78,12 +84,6 @@ export default function PlanPage() {
       </div>
     );
   }
-
-  // Persist plan to localStorage when it changes
-  useEffect(() => {
-    if (!plan) return;
-    savePlan(plan);
-  }, [plan]);
 
   const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => {
     const orderedDays = [...apiPlan.days].sort((a, b) => a.dayIndex - b.dayIndex);
