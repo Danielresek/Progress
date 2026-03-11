@@ -20,6 +20,20 @@ export type CreatePlanRequest = {
   days: CreatePlanDayRequest[];
 };
 
+export type UpdatePlanDayExerciseRequest = {
+  exerciseId: string;
+  exerciseName: string;
+  sortOrder: number;
+  sets: number;
+  reps: number;
+  startWeight: number;
+};
+
+export type UpdatePlanDayRequest = {
+  name: string;
+  exercises: UpdatePlanDayExerciseRequest[];
+};
+
 export type PlanDayExerciseResponse = {
   id: string;
   exerciseId: string;
@@ -85,6 +99,17 @@ export function createPlan(
 export function resetActivePlan(token: string): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>("/api/plans/reset", token, {
     method: "POST",
+  });
+}
+
+export function updateActivePlanDay(
+  token: string,
+  dayIndex: number,
+  payload: UpdatePlanDayRequest
+): Promise<PlanResponse> {
+  return apiFetch<PlanResponse>(`/api/plans/active/days/${dayIndex}`, token, {
+    method: "PUT",
+    body: JSON.stringify(payload),
   });
 }
 

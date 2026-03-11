@@ -180,6 +180,60 @@ app.MapPost("/api/plans", async (AppDbContext db, ClaimsPrincipal user, CreatePl
 })
 .RequireAuthorization();
 
+app.MapPut("/api/plans/active/days/{dayIndex:int}", async (
+    int dayIndex,
+    AppDbContext db,
+    ClaimsPrincipal user,
+    UpdatePlanDayRequest request) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    if (dayIndex < 1)
+        return Results.BadRequest(new { message = "Day index must be at least 1." });
+
+    var activePlan = await db.Plans
+        .Include(p => p.Days)
+            .ThenInclude(d => d.Exercises)
+        .FirstOrDefaultAsync(p => p.UserId == sub && p.IsActive);
+
+    if (activePlan is null)
+        return Results.NotFound();
+
+    var day = activePlan.Days.FirstOrDefault(d => d.DayIndex == dayIndex);
+    if (day is null)
+        return Results.NotFound();
+
+    day.Name = request.Name;
+
+    if (day.Exercises.Count > 0)
+        db.PlanDayExercises.RemoveRange(day.Exercises);
+
+    day.Exercises = request.Exercises
+        .OrderBy(exercise => exercise.SortOrder)
+        .Select(exercise => new PlanDayExercise
+        {
+            ExerciseId = exercise.ExerciseId,
+            ExerciseName = exercise.ExerciseName,
+            SortOrder = exercise.SortOrder,
+            Sets = exercise.Sets,
+            Reps = exercise.Reps,
+            StartWeight = exercise.StartWeight
+        })
+        .ToList();
+
+    activePlan.UpdatedAtUtc = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(PlanMappings.MapPlanResponse(activePlan));
+})
+.RequireAuthorization();
+
 app.MapPost("/api/plans/reset", async (AppDbContext db, ClaimsPrincipal user) =>
 {
     var sub =

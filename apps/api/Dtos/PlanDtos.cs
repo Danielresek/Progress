@@ -17,6 +17,18 @@ public record CreatePlanDayExerciseRequest(
     int Reps,
     decimal StartWeight);
 
+public record UpdatePlanDayRequest(
+    string Name,
+    List<UpdatePlanDayExerciseRequest> Exercises);
+
+public record UpdatePlanDayExerciseRequest(
+    string ExerciseId,
+    string ExerciseName,
+    int SortOrder,
+    int Sets,
+    int Reps,
+    decimal StartWeight);
+
 public record PlanResponse(
     Guid Id,
     string Name,

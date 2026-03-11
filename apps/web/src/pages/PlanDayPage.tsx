@@ -1,9 +1,9 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { EXERCISES, type Exercise } from "../data/exercises";
+import { useWorkoutApi } from "../api/useWorkoutApi";
 import type { DayExercise, Plan } from "../types";
 import {
-  clearDayExercises,
   getDayExercises,
   getPlan,
   saveDayExercises,
@@ -12,6 +12,7 @@ import {
 
 export default function PlanDayPage() {
   const { dayId } = useParams();
+  const { updateActivePlanDay } = useWorkoutApi();
 
   const dayNumber = Number(dayId || "1");
 
@@ -28,25 +29,65 @@ export default function PlanDayPage() {
 
   // Avoid stacking setTimeout calls
   const saveTimeoutRef = useRef<number | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Helper: persist to localStorage
-  const persist = (next: DayExercise[]) => {
+  const normalizeTitle = (title: string) => title.trim() || `Workout ${dayNumber}`;
+
+  const saveDayTitleLocal = (nextTitle: string) => {
+    const parsed = getPlan();
+    if (!parsed?.days || !Array.isArray(parsed.days)) return;
+
+    const copy = [...parsed.days];
+    copy[dayNumber - 1] = normalizeTitle(nextTitle);
+
+    const nextPlan: Plan = { ...parsed, days: copy };
+    savePlan(nextPlan);
+  };
+
+  const mapItemsToRequestExercises = (next: DayExercise[]) =>
+    next.map((item, index) => ({
+      exerciseId: item.exerciseId,
+      exerciseName: item.name,
+      sortOrder: index + 1,
+      sets: item.sets,
+      reps: item.reps,
+      startWeight: item.startWeight,
+    }));
+
+  // Persist to backend first, then local storage on success.
+  const persist = (next: DayExercise[], titleOverride?: string) => {
     if (!hasDayId) return;
 
-    saveDayExercises(dayNumber, next);
+    const titleToSave = normalizeTitle(titleOverride ?? dayTitle);
 
     // Small "saving/saved" indicator
     setSaveState("saving");
 
-    if (saveTimeoutRef.current) {
-      window.clearTimeout(saveTimeoutRef.current);
-    }
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await updateActivePlanDay(dayNumber, {
+          name: titleToSave,
+          exercises: mapItemsToRequestExercises(next),
+        });
 
-    saveTimeoutRef.current = window.setTimeout(() => {
-      setSaveState("saved");
-    }, 250);
+        saveDayExercises(dayNumber, next);
+        saveDayTitleLocal(titleToSave);
+
+        if (saveTimeoutRef.current) {
+          window.clearTimeout(saveTimeoutRef.current);
+        }
+
+        saveTimeoutRef.current = window.setTimeout(() => {
+          setSaveState("saved");
+        }, 250);
+      })
+      .catch((error) => {
+        console.error("Failed to save workout day", error);
+        setSaveState("idle");
+      });
   };
 
   // Load workout title from the plan (workouttracker.plan.v1)
@@ -65,16 +106,11 @@ export default function PlanDayPage() {
     }
   }, [dayNumber]);
 
-  // Save workout title into plan.days[]
+  // Save workout title in backend and mirror locally on success
   const saveDayTitle = (nextTitle: string) => {
-    const parsed = getPlan();
-    if (!parsed?.days || !Array.isArray(parsed.days)) return;
-
-    const copy = [...parsed.days];
-    copy[dayNumber - 1] = nextTitle.trim() || `Workout ${dayNumber}`;
-
-    const nextPlan: Plan = { ...parsed, days: copy };
-    savePlan(nextPlan);
+    const normalized = normalizeTitle(nextTitle);
+    setDayTitle(normalized);
+    persist(items, normalized);
   };
 
   // Load from localStorage when page opens / dayId changes
@@ -154,9 +190,8 @@ export default function PlanDayPage() {
     const ok = window.confirm("Do you want to delete all exercises in this workout?");
     if (!ok) return;
 
-    clearDayExercises(dayNumber);
+    persist([]);
     setItems([]);
-    setSaveState("idle");
   };
 
   // Remove exercise
