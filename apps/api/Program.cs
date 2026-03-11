@@ -213,10 +213,11 @@ app.MapPut("/api/plans/active/days/{dayIndex:int}", async (
     if (day.Exercises.Count > 0)
         db.PlanDayExercises.RemoveRange(day.Exercises);
 
-    day.Exercises = request.Exercises
+    var nextExercises = request.Exercises
         .OrderBy(exercise => exercise.SortOrder)
         .Select(exercise => new PlanDayExercise
         {
+            PlanDayId = day.Id,
             ExerciseId = exercise.ExerciseId,
             ExerciseName = exercise.ExerciseName,
             SortOrder = exercise.SortOrder,
@@ -225,6 +226,9 @@ app.MapPut("/api/plans/active/days/{dayIndex:int}", async (
             StartWeight = exercise.StartWeight
         })
         .ToList();
+
+    db.PlanDayExercises.AddRange(nextExercises);
+    day.Exercises = nextExercises;
 
     activePlan.UpdatedAtUtc = DateTime.UtcNow;
 
