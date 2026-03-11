@@ -106,6 +106,7 @@ export const EXERCISES: Exercise[] = [
   { id: "single-arm-pushdown", name: "Single Arm Pushdown", muscleGroup: "Triceps" },
   { id: "reverse-grip-pushdown", name: "Reverse Grip Pushdown", muscleGroup: "Triceps" },
   { id: "overhead-triceps", name: "Overhead Triceps Extension", muscleGroup: "Triceps" },
+  { id: "overhead-single-arm-triceps", name: "Overhead Single-Arm Triceps Extension", muscleGroup: "Triceps" },
   { id: "db-overhead-triceps", name: "Dumbbell Overhead Triceps Extension", muscleGroup: "Triceps" },
   { id: "cable-overhead-triceps", name: "Cable Overhead Triceps Extension", muscleGroup: "Triceps" },
   { id: "skullcrusher", name: "Skullcrusher", muscleGroup: "Triceps" },
