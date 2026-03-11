@@ -33,6 +33,15 @@ export default function PlanPage() {
     return map;
   }, []);
 
+  const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => {
+    const orderedDays = [...apiPlan.days].sort((a, b) => a.dayIndex - b.dayIndex);
+
+    return {
+      name: apiPlan.name,
+      days: orderedDays.map((day) => day.name),
+    };
+  };
+
   // Load plan from localStorage on mount
   useEffect(() => {
     setPlan(getPlan());
@@ -84,15 +93,6 @@ export default function PlanPage() {
       </div>
     );
   }
-
-  const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => {
-    const orderedDays = [...apiPlan.days].sort((a, b) => a.dayIndex - b.dayIndex);
-
-    return {
-      name: apiPlan.name,
-      days: orderedDays.map((day) => day.name),
-    };
-  };
 
   const createManualPayload = (name: string, workouts: number): CreatePlanRequest => ({
     name,
