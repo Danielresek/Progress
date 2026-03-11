@@ -29,6 +29,12 @@ type CompletedSet = {
   reps: number;
 };
 
+type HistoricalSet = {
+  setNumber: number;
+  weight: number;
+  reps: number;
+};
+
 export default function TodayRunPage() {
   const navigate = useNavigate();
   const params = useParams();
@@ -123,17 +129,41 @@ export default function TodayRunPage() {
   );
   const isLastSet = currentSetIndex + 1 >= plannedSetCount;
 
-  // Find the latest log for this exercise (across workouts/weeks)
-  const last = useMemo(() => {
-    if (!current) return null;
+  const lastWorkoutSets = useMemo<HistoricalSet[]>(() => {
+    if (!current) return [];
 
-    const logs = getLogs();
-    const found = logs
+    const logs = getLogs()
       .filter((l) => l.exerciseId === current.exerciseId)
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
+      .sort((a, b) => b.timestamp - a.timestamp);
 
-    return found ?? null;
+    if (!logs.length) return [];
+
+    // Fallback strategy for current log model: infer a "session" by grouping
+    // same-exercise logs close in time to the newest log.
+    const latestTimestamp = logs[0].timestamp;
+    const SESSION_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+    const sessionLogs = logs
+      .filter((log) => latestTimestamp - log.timestamp <= SESSION_WINDOW_MS)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const relevantLogs = sessionLogs.length > 0 ? sessionLogs : [logs[0]];
+
+    return relevantLogs.map((log, i) => ({
+      setNumber: i + 1,
+      weight: log.performedWeight,
+      reps: log.performedReps,
+    }));
   }, [current?.exerciseId]);
+
+  const last = useMemo(() => {
+    if (!lastWorkoutSets.length) return null;
+    const mostRecentSet = lastWorkoutSets[lastWorkoutSets.length - 1];
+    return {
+      performedWeight: mostRecentSet.weight,
+      performedReps: mostRecentSet.reps,
+    };
+  }, [lastWorkoutSets]);
 
   // Reset set-by-set state and prefill inputs when exercise changes.
   useEffect(() => {
@@ -450,43 +480,40 @@ const bumpKg = (delta: number) => {
         <p className="text-neutral-400 text-sm">
           Exercise {index + 1} of {items.length}
         </p>
-        <p className="text-neutral-300 text-sm font-medium">
-          Set {currentSetIndex + 1} of {plannedSetCount}
-        </p>
       </header>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
         <div>
           <div className="text-sm text-neutral-400">Exercise</div>
-          <div className="text-xl font-semibold">{current?.name}</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xl font-semibold">{current?.name}</div>
+            <div className="rounded-full border border-neutral-700 bg-neutral-950/60 px-2.5 py-1 text-xs text-neutral-300 whitespace-nowrap">
+              Set {currentSetIndex + 1} / {plannedSetCount}
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl bg-black/30 border border-neutral-800 p-3 text-sm space-y-1">
           <div className="flex justify-between">
-            <span className="text-neutral-400">Plan</span>
-            <span>
-              {current?.sets} x {current?.reps}
-            </span>
+            <span className="text-neutral-400">Last workout</span>
           </div>
 
-          <div className="flex justify-between">
-            <span className="text-neutral-400">Suggested start kg</span>
-            <span>{current && current.startWeight > 0 ? current.startWeight : "-"}</span>
-          </div>
-
-          <div className="flex justify-between">
-            <span className="text-neutral-400">Last</span>
-            <span>
-              {last
-                ? `${last.performedWeight} kg × ${last.performedReps}`
-                : "—"}
-            </span>
-          </div>
+          {lastWorkoutSets.length ? (
+            <div className="space-y-1">
+              {lastWorkoutSets.map((set) => (
+                <div key={set.setNumber} className="text-neutral-300">
+                  Set {set.setNumber} - {set.weight} kg x {set.reps}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-neutral-500">No previous workout found.</div>
+          )}
 
           {suggestion && (
             <div className="flex items-center justify-between gap-3 border-t border-neutral-800 pt-2 mt-2">
               <span>
-                Suggestion: {suggestion.weight} kg × {suggestion.reps}
+                Suggestion: {suggestion.weight} kg x {suggestion.reps}
               </span>
               <button
                 type="button"
@@ -529,21 +556,6 @@ const bumpKg = (delta: number) => {
           </div>
         </div>
 
-        <div className="rounded-xl bg-black/30 border border-neutral-800 p-3 space-y-2">
-          <div className="text-sm font-semibold">Completed sets</div>
-          {completedSets.length === 0 ? (
-            <div className="text-sm text-neutral-500">No sets completed yet.</div>
-          ) : (
-            <div className="space-y-1">
-              {completedSets.map((set) => (
-                <div key={set.setNumber} className="text-sm text-neutral-300">
-                  Set {set.setNumber} - {set.weight} kg x {set.reps}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="grid grid-cols-3 gap-3">
           <button
             type="button"
@@ -575,6 +587,21 @@ const bumpKg = (delta: number) => {
             +5 kg
           </button>
         </div>
+
+        <div className="rounded-xl bg-black/30 border border-neutral-800 p-3 space-y-2">
+          <div className="text-sm font-semibold">Completed sets</div>
+          {completedSets.length === 0 ? (
+            <div className="text-sm text-neutral-500">No sets completed yet.</div>
+          ) : (
+            <div className="space-y-1">
+              {completedSets.map((set) => (
+                <div key={set.setNumber} className="text-sm text-neutral-300">
+                  Set {set.setNumber} - {set.weight} kg x {set.reps}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         
         {formError && (
           <div className="text-sm text-red-300">{formError}</div>
@@ -590,7 +617,7 @@ const bumpKg = (delta: number) => {
               : "bg-neutral-800 text-neutral-500 cursor-not-allowed",
           ].join(" ")}
         >
-          {isLastSet ? "Complete exercise" : "Save and next set"}
+          {isLastSet ? "Save and complete exercise" : "Save and next set"}
         </button>
 
         <button
