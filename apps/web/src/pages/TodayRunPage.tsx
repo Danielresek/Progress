@@ -23,6 +23,12 @@ import {
   setWeeklyStreak,
 } from "../storage/statsStorage";
 
+type CompletedSet = {
+  setNumber: number;
+  weight: number;
+  reps: number;
+};
+
 export default function TodayRunPage() {
   const navigate = useNavigate();
   const params = useParams();
@@ -33,6 +39,8 @@ export default function TodayRunPage() {
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
   const [items, setItems] = useState<DayExercise[]>([]);
   const [index, setIndex] = useState<number>(0);
+  const [currentSetIndex, setCurrentSetIndex] = useState<number>(0);
+  const [completedSets, setCompletedSets] = useState<CompletedSet[]>([]);
 
   const [kg, setKg] = useState<string>("");
   const [reps, setReps] = useState<string>("");
@@ -109,6 +117,11 @@ export default function TodayRunPage() {
   }, [dayId, index]);
 
   const current = useMemo(() => items[index] ?? null, [items, index]);
+  const plannedSetCount = useMemo(
+    () => Math.max(1, current?.sets ?? 1),
+    [current?.sets]
+  );
+  const isLastSet = currentSetIndex + 1 >= plannedSetCount;
 
   // Find the latest log for this exercise (across workouts/weeks)
   const last = useMemo(() => {
@@ -122,12 +135,22 @@ export default function TodayRunPage() {
     return found ?? null;
   }, [current?.exerciseId]);
 
-  // Optional nicety: reset error and inputs when exercise changes
+  // Reset set-by-set state and prefill inputs when exercise changes.
   useEffect(() => {
+    setCurrentSetIndex(0);
+    setCompletedSets([]);
     setFormError("");
-    setKg("");
-    setReps("");
-  }, [current?.exerciseId]);
+
+    if (!current) {
+      setKg("");
+      setReps("");
+      return;
+    }
+
+    const suggestedStart = current.startWeight > 0 ? current.startWeight : null;
+    setKg(suggestedStart !== null ? String(suggestedStart) : "");
+    setReps(current.reps > 0 ? String(current.reps) : "");
+  }, [current?.exerciseId, current?.reps, current?.startWeight]);
 
   const toNumberOrNull = (value: string) => {
   const cleaned = value.replace(",", ".").trim();
@@ -233,7 +256,7 @@ const bumpKg = (delta: number) => {
     }
   };
 
-  const saveAndNext = () => {
+  const saveSet = () => {
     if (!current) return;
 
     const performedWeight = parsePositiveNumber(kg);
@@ -244,8 +267,29 @@ const bumpKg = (delta: number) => {
       return;
     }
 
+    const nextSetNumber = currentSetIndex + 1;
+    const nextCompletedSets: CompletedSet[] = [
+      ...completedSets,
+      {
+        setNumber: nextSetNumber,
+        weight: performedWeight,
+        reps: performedReps,
+      },
+    ];
+
+    setCompletedSets(nextCompletedSets);
+    setFormError("");
+
+    if (nextSetNumber < plannedSetCount) {
+      setCurrentSetIndex(nextSetNumber);
+      setKgSafe(performedWeight);
+      setReps(current.reps > 0 ? String(current.reps) : String(performedReps));
+      return;
+    }
+
     const weekIndex = getWeekIndex();
 
+    // Keep existing logging behavior (one log per completed exercise) for now.
     const entry: LogEntry = {
       dayId,
       exerciseId: current.exerciseId,
@@ -266,10 +310,10 @@ const bumpKg = (delta: number) => {
       weekIndex,
     });
 
-    // reset inputs + error
+    setCurrentSetIndex(0);
+    setCompletedSets([]);
     setKg("");
     setReps("");
-    setFormError("");
 
     // next exercise
     const nextIndex = index + 1;
@@ -286,6 +330,8 @@ const bumpKg = (delta: number) => {
 
     clearRunState(dayId);
     setIndex(0);
+    setCurrentSetIndex(0);
+    setCompletedSets([]);
     setKg("");
     setReps("");
     setFormError("");
@@ -404,6 +450,9 @@ const bumpKg = (delta: number) => {
         <p className="text-neutral-400 text-sm">
           Exercise {index + 1} of {items.length}
         </p>
+        <p className="text-neutral-300 text-sm font-medium">
+          Set {currentSetIndex + 1} of {plannedSetCount}
+        </p>
       </header>
 
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-4">
@@ -418,6 +467,11 @@ const bumpKg = (delta: number) => {
             <span>
               {current?.sets} x {current?.reps}
             </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Suggested start kg</span>
+            <span>{current && current.startWeight > 0 ? current.startWeight : "-"}</span>
           </div>
 
           <div className="flex justify-between">
@@ -475,6 +529,21 @@ const bumpKg = (delta: number) => {
           </div>
         </div>
 
+        <div className="rounded-xl bg-black/30 border border-neutral-800 p-3 space-y-2">
+          <div className="text-sm font-semibold">Completed sets</div>
+          {completedSets.length === 0 ? (
+            <div className="text-sm text-neutral-500">No sets completed yet.</div>
+          ) : (
+            <div className="space-y-1">
+              {completedSets.map((set) => (
+                <div key={set.setNumber} className="text-sm text-neutral-300">
+                  Set {set.setNumber} - {set.weight} kg x {set.reps}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-3 gap-3">
           <button
             type="button"
@@ -512,7 +581,7 @@ const bumpKg = (delta: number) => {
         )}
 
         <button
-          onClick={saveAndNext}
+          onClick={saveSet}
           disabled={!canSave}
           className={[
             "w-full rounded-2xl py-4 text-lg font-semibold active:scale-[0.99]",
@@ -521,7 +590,7 @@ const bumpKg = (delta: number) => {
               : "bg-neutral-800 text-neutral-500 cursor-not-allowed",
           ].join(" ")}
         >
-          Save and next
+          {isLastSet ? "Complete exercise" : "Save and next set"}
         </button>
 
         <button
