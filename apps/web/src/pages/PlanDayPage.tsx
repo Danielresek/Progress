@@ -26,6 +26,7 @@ export default function PlanDayPage() {
   // Avoid stacking setTimeout calls
   const saveTimeoutRef = useRef<number | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const hasHydratedRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -90,6 +91,7 @@ export default function PlanDayPage() {
   useEffect(() => {
     if (!hasDayId) return;
     if (isActivePlanLoading) return;
+    if (isEditingTitle) return;
 
     const activeDay = activePlan?.days.find((d) => d.dayIndex === dayNumber);
 
@@ -100,7 +102,7 @@ export default function PlanDayPage() {
     }
 
     setDayTitle(`Workout ${dayNumber}`);
-  }, [dayNumber, activePlan, hasDayId, isActivePlanLoading]);
+  }, [dayNumber, activePlan, hasDayId, isActivePlanLoading, isEditingTitle]);
 
   // Save workout title in backend and mirror locally on success
   const saveDayTitle = (nextTitle: string) => {
@@ -109,21 +111,29 @@ export default function PlanDayPage() {
     persist(items, normalized);
   };
 
+  // Allow one hydration pass per day route.
+  useEffect(() => {
+    hasHydratedRef.current = false;
+  }, [dayNumber, hasDayId]);
+
   // Hydrate exercises from backend active plan.
   useEffect(() => {
     if (!hasDayId) return;
     if (isActivePlanLoading) return;
+    if (hasHydratedRef.current) return;
 
     const activeDay = activePlan?.days.find((d) => d.dayIndex === dayNumber);
     if (activeDay) {
       const backendItems = mapApiDayToItems(activeDay);
       setItems(backendItems);
       setSaveState("idle");
+      hasHydratedRef.current = true;
       return;
     }
 
     setItems([]);
     setSaveState("idle");
+    hasHydratedRef.current = true;
   }, [dayNumber, hasDayId, activePlan, isActivePlanLoading]);
 
   // Clean up timeout when component unmounts
