@@ -9,7 +9,6 @@ import {
   clearCurrentDay,
   clearAllDayExercises,
   clearAllRunStates,
-  clearDayExercises,
   clearPlan,
   clearPlanComplete,
   clearRunState,
