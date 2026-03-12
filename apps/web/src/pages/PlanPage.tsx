@@ -7,6 +7,8 @@ import type { CreatePlanRequest, PlanResponse } from "../api/workoutApi";
 import type { DayExercise, Plan } from "../types";
 import {
   clearCurrentDay,
+  clearAllDayExercises,
+  clearAllRunStates,
   clearDayExercises,
   clearPlan,
   clearPlanComplete,
@@ -16,6 +18,13 @@ import {
   savePlan,
   setCurrentDay,
 } from "../storage/planStorage";
+import { clearLogs } from "../storage/logStorage";
+import {
+  clearWeekCompletions,
+  setWeekDoneFlag,
+  setWeekIndex,
+  setWeeklyStreak,
+} from "../storage/statsStorage";
 
 export default function PlanPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -184,24 +193,25 @@ export default function PlanPage() {
       return;
     }
 
-    const daysCount = plan?.days?.length ?? 0;
-
     // Delete the plan itself
     clearPlan();
 
-    // Delete all exercises per workout
-    for (let i = 1; i <= daysCount; i++) {
-      clearDayExercises(i);
-    }
-
-    // Delete run state per workout
-    for (let i = 1; i <= daysCount; i++) {
-      clearRunState(i);
-    }
+    // Delete all per-day exercises and run-state keys for any old plan size
+    clearAllDayExercises();
+    clearAllRunStates();
 
     // Delete today sequence + complete flag
     clearCurrentDay();
     clearPlanComplete();
+
+    // Clear weekly progress derived from old plan
+    clearWeekCompletions();
+    setWeekIndex(1);
+    setWeeklyStreak(0);
+    setWeekDoneFlag(false);
+
+    // Clear mirrored logs so stale data cannot leak into a new plan
+    clearLogs();
 
     // Reset state/UI
     setPlan(null);

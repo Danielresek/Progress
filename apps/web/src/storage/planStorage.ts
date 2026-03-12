@@ -13,6 +13,9 @@ function getRunKey(dayIndex: number) {
   return `workouttracker.run.day.${dayIndex}.v1`;
 }
 
+const DAY_KEY_PREFIX = "workouttracker.plan.day.";
+const RUN_KEY_PREFIX = "workouttracker.run.day.";
+
 export function getPlan(): Plan | null {
   const raw = localStorage.getItem(PLAN_KEY);
   if (!raw) return null;
@@ -52,6 +55,15 @@ export function saveDayExercises(dayIndex: number, exercises: DayExercise[]) {
 
 export function clearDayExercises(dayIndex: number) {
   localStorage.removeItem(getDayKey(dayIndex));
+}
+
+export function clearAllDayExercises() {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (!key.startsWith(DAY_KEY_PREFIX)) continue;
+    localStorage.removeItem(key);
+  }
 }
 
 export function getCurrentDay(): number {
@@ -94,4 +106,13 @@ export function setRunIndex(dayIndex: number, index: number) {
 
 export function clearRunState(dayIndex: number) {
   localStorage.removeItem(getRunKey(dayIndex));
+}
+
+export function clearAllRunStates() {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (!key.startsWith(RUN_KEY_PREFIX)) continue;
+    localStorage.removeItem(key);
+  }
 }
