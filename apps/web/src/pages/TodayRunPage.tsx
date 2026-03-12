@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import type { DayExercise, LogEntry, Plan } from "../types";
+import type { DayExercise, LogEntry } from "../types";
 import { useWorkoutApi } from "../api/useWorkoutApi";
 import type { PlanResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
   getDayExercises,
-  getPlan,
   getRunIndex,
   setCurrentDay,
   setRunIndex,
@@ -60,7 +59,6 @@ export default function TodayRunPage() {
   const dayId = Number(params.dayId || "1");
   const { getActivePlan, createLog } = useWorkoutApi();
 
-  const [plan, setPlan] = useState<Plan | null>(null);
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
   const [items, setItems] = useState<DayExercise[]>([]);
   const [index, setIndex] = useState<number>(0);
@@ -74,11 +72,6 @@ export default function TodayRunPage() {
   const [reps, setReps] = useState<string>("");
 
   const [formError, setFormError] = useState<string>("");
-
-  // Read plan (to get workout name + number of workouts)
-  useEffect(() => {
-    setPlan(getPlan());
-  }, []);
 
   // Load active plan from backend
   useEffect(() => {
@@ -103,9 +96,9 @@ export default function TodayRunPage() {
   }, []);
 
   const dayTitle = useMemo(() => {
-    if (!plan?.days?.length) return `Workout ${dayId}`;
-    return plan.days[dayId - 1] ?? `Workout ${dayId}`;
-  }, [plan, dayId]);
+    const day = activePlan?.days.find((d) => d.dayIndex === dayId);
+    return day?.name ?? `Workout ${dayId}`;
+  }, [activePlan, dayId]);
 
   // Load exercises for the day
   useEffect(() => {
@@ -405,7 +398,7 @@ const bumpKg = (delta: number) => {
 
   // Save and close: advance to next workout (or loop to workout 1) and go back to Today
   const saveAndClose = () => {
-    const totalDays = plan?.days?.length ?? 0;
+    const totalDays = activePlan?.days?.length ?? 0;
 
     // clear run state for this workout
     clearRunState(dayId);
