@@ -35,6 +35,25 @@ type HistoricalSet = {
   reps: number;
 };
 
+function createExerciseSessionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  const bytes = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = bytes.map((b) => b.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join(""),
+  ].join("-");
+}
+
 export default function TodayRunPage() {
   const navigate = useNavigate();
   const params = useParams();
@@ -47,6 +66,9 @@ export default function TodayRunPage() {
   const [index, setIndex] = useState<number>(0);
   const [currentSetIndex, setCurrentSetIndex] = useState<number>(0);
   const [completedSets, setCompletedSets] = useState<CompletedSet[]>([]);
+  const [exerciseSessionId, setExerciseSessionId] = useState<string>(
+    createExerciseSessionId()
+  );
 
   const [kg, setKg] = useState<string>("");
   const [reps, setReps] = useState<string>("");
@@ -133,28 +155,32 @@ export default function TodayRunPage() {
     if (!current) return [];
 
     const logs = getLogs()
-      .filter((l) => l.exerciseId === current.exerciseId)
+      .filter(
+        (l) =>
+          l.exerciseId === current.exerciseId &&
+          !!l.exerciseSessionId &&
+          l.exerciseSessionId !== exerciseSessionId
+      )
       .sort((a, b) => b.timestamp - a.timestamp);
 
     if (!logs.length) return [];
 
-    // Fallback strategy for current log model: infer a "session" by grouping
-    // same-exercise logs close in time to the newest log.
-    const latestTimestamp = logs[0].timestamp;
-    const SESSION_WINDOW_MS = 3 * 60 * 60 * 1000;
-
+    const latestSessionId = logs[0].exerciseSessionId;
     const sessionLogs = logs
-      .filter((log) => latestTimestamp - log.timestamp <= SESSION_WINDOW_MS)
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .filter((log) => log.exerciseSessionId === latestSessionId)
+      .sort((a, b) => {
+        const aSet = typeof a.setNumber === "number" ? a.setNumber : Number.MAX_SAFE_INTEGER;
+        const bSet = typeof b.setNumber === "number" ? b.setNumber : Number.MAX_SAFE_INTEGER;
+        if (aSet !== bSet) return aSet - bSet;
+        return a.timestamp - b.timestamp;
+      });
 
-    const relevantLogs = sessionLogs.length > 0 ? sessionLogs : [logs[0]];
-
-    return relevantLogs.map((log, i) => ({
-      setNumber: i + 1,
+    return sessionLogs.map((log, i) => ({
+      setNumber: log.setNumber ?? i + 1,
       weight: log.performedWeight,
       reps: log.performedReps,
     }));
-  }, [current?.exerciseId]);
+  }, [current?.exerciseId, exerciseSessionId]);
 
   const last = useMemo(() => {
     if (!lastWorkoutSets.length) return null;
@@ -169,6 +195,7 @@ export default function TodayRunPage() {
   useEffect(() => {
     setCurrentSetIndex(0);
     setCompletedSets([]);
+    setExerciseSessionId(createExerciseSessionId());
     setFormError("");
 
     if (!current) {
@@ -254,6 +281,8 @@ const bumpKg = (delta: number) => {
   const saveLogToBackend = async (payload: {
     dayIndex: number;
     exercise: DayExercise;
+    exerciseSessionId: string;
+    setNumber: number;
     performedWeight: number;
     performedReps: number;
     weekIndex: number;
@@ -277,6 +306,8 @@ const bumpKg = (delta: number) => {
         planDayName: planDay.name,
         exerciseId: payload.exercise.exerciseId,
         exerciseName: payload.exercise.name,
+        exerciseSessionId: payload.exerciseSessionId,
+        setNumber: payload.setNumber,
         performedWeight: payload.performedWeight,
         performedReps: payload.performedReps,
         weekIndex: payload.weekIndex,
@@ -298,6 +329,32 @@ const bumpKg = (delta: number) => {
     }
 
     const nextSetNumber = currentSetIndex + 1;
+    const weekIndex = getWeekIndex();
+
+    const entry: LogEntry = {
+      dayId,
+      exerciseId: current.exerciseId,
+      exerciseSessionId,
+      setNumber: nextSetNumber,
+      performedWeight,
+      performedReps,
+      timestamp: Date.now(),
+      weekIndex,
+    };
+
+    addLogEntry(entry);
+
+    // Save each set immediately. Backend sync remains best-effort.
+    void saveLogToBackend({
+      dayIndex: dayId,
+      exercise: current,
+      exerciseSessionId,
+      setNumber: nextSetNumber,
+      performedWeight,
+      performedReps,
+      weekIndex,
+    });
+
     const nextCompletedSets: CompletedSet[] = [
       ...completedSets,
       {
@@ -317,31 +374,9 @@ const bumpKg = (delta: number) => {
       return;
     }
 
-    const weekIndex = getWeekIndex();
-
-    // Keep existing logging behavior (one log per completed exercise) for now.
-    const entry: LogEntry = {
-      dayId,
-      exerciseId: current.exerciseId,
-      performedWeight,
-      performedReps,
-      timestamp: Date.now(),
-      weekIndex,
-    };
-
-    addLogEntry(entry);
-
-    // Keep local save flow as source of truth for now; backend sync is best-effort.
-    void saveLogToBackend({
-      dayIndex: dayId,
-      exercise: current,
-      performedWeight,
-      performedReps,
-      weekIndex,
-    });
-
     setCurrentSetIndex(0);
     setCompletedSets([]);
+    setExerciseSessionId(createExerciseSessionId());
     setKg("");
     setReps("");
 
@@ -362,6 +397,7 @@ const bumpKg = (delta: number) => {
     setIndex(0);
     setCurrentSetIndex(0);
     setCompletedSets([]);
+    setExerciseSessionId(createExerciseSessionId());
     setKg("");
     setReps("");
     setFormError("");

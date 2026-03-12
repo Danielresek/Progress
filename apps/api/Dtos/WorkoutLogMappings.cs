@@ -12,6 +12,8 @@ public static class WorkoutLogMappings
             log.PlanDayName,
             log.ExerciseId,
             log.ExerciseName,
+            log.ExerciseSessionId,
+            log.SetNumber,
             log.PerformedWeight,
             log.PerformedReps,
             log.WeekIndex,

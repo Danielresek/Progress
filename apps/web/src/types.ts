@@ -14,6 +14,8 @@ export type DayExercise = {
 export type LogEntry = {
   dayId: number;
   exerciseId: string;
+  exerciseSessionId?: string;
+  setNumber?: number;
   performedWeight: number;
   performedReps: number;
   timestamp: number;

@@ -322,6 +322,8 @@ app.MapPost("/api/logs", async (AppDbContext db, ClaimsPrincipal user, CreateWor
         PlanDayName = request.PlanDayName,
         ExerciseId = request.ExerciseId,
         ExerciseName = request.ExerciseName,
+        ExerciseSessionId = request.ExerciseSessionId,
+        SetNumber = request.SetNumber,
         PerformedWeight = request.PerformedWeight,
         PerformedReps = request.PerformedReps,
         WeekIndex = request.WeekIndex,

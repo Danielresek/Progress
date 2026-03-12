@@ -5,6 +5,8 @@ public record CreateWorkoutLogRequest(
     string PlanDayName,
     string ExerciseId,
     string ExerciseName,
+    Guid ExerciseSessionId,
+    int SetNumber,
     decimal PerformedWeight,
     int PerformedReps,
     int WeekIndex);
@@ -15,6 +17,8 @@ public record WorkoutLogResponse(
     string PlanDayName,
     string ExerciseId,
     string ExerciseName,
+    Guid ExerciseSessionId,
+    int SetNumber,
     decimal PerformedWeight,
     int PerformedReps,
     int WeekIndex,

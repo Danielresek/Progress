@@ -63,6 +63,8 @@ export type CreateWorkoutLogRequest = {
   planDayName: string;
   exerciseId: string;
   exerciseName: string;
+  exerciseSessionId: string;
+  setNumber: number;
   performedWeight: number;
   performedReps: number;
   weekIndex: number;
@@ -74,6 +76,8 @@ export type WorkoutLogResponse = {
   planDayName: string;
   exerciseId: string;
   exerciseName: string;
+  exerciseSessionId: string;
+  setNumber: number;
   performedWeight: number;
   performedReps: number;
   weekIndex: number;

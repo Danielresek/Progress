@@ -14,6 +14,10 @@ public class WorkoutLog
 
     public string ExerciseName { get; set; } = default!;
 
+    public Guid ExerciseSessionId { get; set; }
+
+    public int SetNumber { get; set; }
+
     public decimal PerformedWeight { get; set; }
 
     public int PerformedReps { get; set; }
