@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import type { DayExercise, LogEntry } from "../types";
+import type { DayExercise } from "../types";
 import { useWorkoutApi } from "../api/useWorkoutApi";
-import type { PlanResponse } from "../api/workoutApi";
+import type { PlanResponse, WorkoutLogResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
-  getDayExercises,
   getRunIndex,
   setCurrentDay,
   setRunIndex,
 } from "../storage/planStorage";
-import { addLogEntry, getLogs } from "../storage/logStorage";
 import {
   getWeekCompletions,
   getWeekIndex,
@@ -57,9 +55,11 @@ export default function TodayRunPage() {
   const navigate = useNavigate();
   const params = useParams();
   const dayId = Number(params.dayId || "1");
-  const { getActivePlan, createLog } = useWorkoutApi();
+  const { getActivePlan, getLogs: getLogsRequest, createLog } = useWorkoutApi();
 
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
+  const [backendLogs, setBackendLogs] = useState<WorkoutLogResponse[]>([]);
+  const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [items, setItems] = useState<DayExercise[]>([]);
   const [index, setIndex] = useState<number>(0);
   const [currentSetIndex, setCurrentSetIndex] = useState<number>(0);
@@ -77,6 +77,8 @@ export default function TodayRunPage() {
   useEffect(() => {
     let cancelled = false;
 
+    setIsPlanLoading(true);
+
     getActivePlan()
       .then((nextPlan) => {
         if (cancelled) return;
@@ -87,6 +89,31 @@ export default function TodayRunPage() {
 
         console.error("Failed to load active plan", error);
         setActivePlan(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsPlanLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load workout logs from backend for last-workout suggestions.
+  useEffect(() => {
+    let cancelled = false;
+
+    getLogsRequest()
+      .then((logs) => {
+        if (cancelled) return;
+        setBackendLogs(logs);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load workout logs", error);
+        setBackendLogs([]);
       });
 
     return () => {
@@ -103,7 +130,7 @@ export default function TodayRunPage() {
   // Load exercises for the day
   useEffect(() => {
     if (!activePlan) {
-      setItems(getDayExercises(dayId));
+      setItems([]);
       return;
     }
 
@@ -147,7 +174,16 @@ export default function TodayRunPage() {
   const lastWorkoutSets = useMemo<HistoricalSet[]>(() => {
     if (!current) return [];
 
-    const logs = getLogs()
+    const logs = backendLogs
+      .map((log) => ({
+        exerciseId: log.exerciseId,
+        exerciseSessionId: log.exerciseSessionId,
+        setNumber: log.setNumber,
+        performedWeight: log.performedWeight,
+        performedReps: log.performedReps,
+        timestamp: Date.parse(log.loggedAtUtc),
+      }))
+      .filter((log) => Number.isFinite(log.timestamp))
       .filter(
         (l) =>
           l.exerciseId === current.exerciseId &&
@@ -173,7 +209,7 @@ export default function TodayRunPage() {
       weight: log.performedWeight,
       reps: log.performedReps,
     }));
-  }, [current?.exerciseId, exerciseSessionId]);
+  }, [backendLogs, current?.exerciseId, exerciseSessionId]);
 
   const last = useMemo(() => {
     if (!lastWorkoutSets.length) return null;
@@ -281,11 +317,11 @@ const bumpKg = (delta: number) => {
     weekIndex: number;
   }) => {
     try {
-      const activePlan = await getActivePlan();
-      if (!activePlan) {
+      const planForSave = activePlan ?? (await getActivePlan());
+      if (!planForSave) {
         return;
       }
-      const planDay = activePlan.days.find((day) => day.dayIndex === payload.dayIndex);
+      const planDay = planForSave.days.find((day) => day.dayIndex === payload.dayIndex);
 
       if (!planDay) {
         console.error(
@@ -323,19 +359,6 @@ const bumpKg = (delta: number) => {
 
     const nextSetNumber = currentSetIndex + 1;
     const weekIndex = getWeekIndex();
-
-    const entry: LogEntry = {
-      dayId,
-      exerciseId: current.exerciseId,
-      exerciseSessionId,
-      setNumber: nextSetNumber,
-      performedWeight,
-      performedReps,
-      timestamp: Date.now(),
-      weekIndex,
-    };
-
-    addLogEntry(entry);
 
     // Save each set immediately. Backend sync remains best-effort.
     void saveLogToBackend({
@@ -442,6 +465,17 @@ const bumpKg = (delta: number) => {
 
     navigate("/today");
   };
+
+  if (isPlanLoading) {
+    return (
+      <div className="space-y-4">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">Run workout</h1>
+          <p className="text-neutral-400 text-sm">Loading workout...</p>
+        </header>
+      </div>
+    );
+  }
 
   if (!items.length) {
     return (

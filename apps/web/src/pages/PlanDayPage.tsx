@@ -3,18 +3,12 @@ import { Link, useParams } from "react-router-dom";
 import { EXERCISES, type Exercise } from "../data/exercises";
 import { useWorkoutApi } from "../api/useWorkoutApi";
 import { useActivePlan } from "../hooks/useActivePlan";
-import type { DayExercise, Plan } from "../types";
-import {
-  getDayExercises,
-  getPlan,
-  saveDayExercises,
-  savePlan,
-} from "../storage/planStorage";
+import type { DayExercise } from "../types";
 
 export default function PlanDayPage() {
   const { dayId } = useParams();
   const { updateActivePlanDay } = useWorkoutApi();
-  const { plan: activePlan } = useActivePlan();
+  const { plan: activePlan, isLoading: isActivePlanLoading } = useActivePlan();
 
   const dayNumber = Number(dayId || "1");
 
@@ -36,17 +30,6 @@ export default function PlanDayPage() {
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   const normalizeTitle = (title: string) => title.trim() || `Workout ${dayNumber}`;
-
-  const saveDayTitleLocal = (nextTitle: string) => {
-    const parsed = getPlan();
-    if (!parsed?.days || !Array.isArray(parsed.days)) return;
-
-    const copy = [...parsed.days];
-    copy[dayNumber - 1] = normalizeTitle(nextTitle);
-
-    const nextPlan: Plan = { ...parsed, days: copy };
-    savePlan(nextPlan);
-  };
 
   const mapItemsToRequestExercises = (next: DayExercise[]) =>
     next.map((item, index) => ({
@@ -72,7 +55,7 @@ export default function PlanDayPage() {
       }));
   };
 
-  // Persist to backend first, then local storage on success.
+  // Persist to backend.
   const persist = (next: DayExercise[], titleOverride?: string) => {
     if (!hasDayId) return;
 
@@ -89,9 +72,6 @@ export default function PlanDayPage() {
           exercises: mapItemsToRequestExercises(next),
         });
 
-        saveDayExercises(dayNumber, next);
-        saveDayTitleLocal(titleToSave);
-
         if (saveTimeoutRef.current) {
           window.clearTimeout(saveTimeoutRef.current);
         }
@@ -106,8 +86,11 @@ export default function PlanDayPage() {
       });
   };
 
-  // Load workout title: prefer backend active plan, fallback to local cache.
+  // Load workout title from backend active plan.
   useEffect(() => {
+    if (!hasDayId) return;
+    if (isActivePlanLoading) return;
+
     const activeDay = activePlan?.days.find((d) => d.dayIndex === dayNumber);
 
     if (activeDay) {
@@ -116,19 +99,8 @@ export default function PlanDayPage() {
       return;
     }
 
-    const parsed = getPlan();
-    if (!parsed) {
-      setDayTitle(`Workout ${dayNumber}`);
-      return;
-    }
-
-    const title = parsed?.days?.[dayNumber - 1];
-    if (typeof title === "string" && title.trim()) {
-      setDayTitle(title);
-    } else {
-      setDayTitle(`Workout ${dayNumber}`);
-    }
-  }, [dayNumber, activePlan]);
+    setDayTitle(`Workout ${dayNumber}`);
+  }, [dayNumber, activePlan, hasDayId, isActivePlanLoading]);
 
   // Save workout title in backend and mirror locally on success
   const saveDayTitle = (nextTitle: string) => {
@@ -137,30 +109,22 @@ export default function PlanDayPage() {
     persist(items, normalized);
   };
 
-  // Hydrate exercises on page load/day change:
-  // 1) backend active plan (source of truth), 2) local fallback.
+  // Hydrate exercises from backend active plan.
   useEffect(() => {
     if (!hasDayId) return;
+    if (isActivePlanLoading) return;
 
     const activeDay = activePlan?.days.find((d) => d.dayIndex === dayNumber);
     if (activeDay) {
       const backendItems = mapApiDayToItems(activeDay);
       setItems(backendItems);
-      saveDayExercises(dayNumber, backendItems);
       setSaveState("idle");
       return;
     }
 
-    const parsed = getDayExercises(dayNumber);
-    if (!parsed.length) {
-      setItems([]);
-      setSaveState("idle");
-      return;
-    }
-
-    setItems(parsed);
+    setItems([]);
     setSaveState("idle");
-  }, [dayNumber, hasDayId, activePlan]);
+  }, [dayNumber, hasDayId, activePlan, isActivePlanLoading]);
 
   // Clean up timeout when component unmounts
   useEffect(() => {

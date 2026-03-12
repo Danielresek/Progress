@@ -25,10 +25,8 @@ export function useActivePlan() {
       if (!force && hasResolvedActivePlan) {
         if (isMountedRef.current) {
           setPlan(activePlanCache);
-          setIsLoading(false);
           setError(null);
         }
-        return activePlanCache;
       }
 
       if (isMountedRef.current) {

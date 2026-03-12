@@ -1,21 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
-import type { DayExercise, Plan } from "../types";
+import type { DayExercise } from "../types";
 import { useWorkoutApi } from "../api/useWorkoutApi";
 import type { PlanResponse, WorkoutLogResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
   getCurrentDay,
-  getDayExercises,
   isPlanComplete,
   setCurrentDay,
 } from "../storage/planStorage";
 import {
   clearWeekCompletions,
   getAndClearWeekDoneFlag,
-  getWeekCompletions,
   getWeekIndex,
   getWeeklyStreak,
   setWeekIndex,
@@ -26,7 +24,6 @@ export default function TodayPage() {
   const navigate = useNavigate();
   const { getActivePlan, getLogs: getLogsRequest } = useWorkoutApi();
 
-  const [plan, setPlan] = useState<Plan | null>(null);
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
   const [backendLogs, setBackendLogs] = useState<WorkoutLogResponse[]>([]);
   const [isPlanLoading, setIsPlanLoading] = useState(true);
@@ -78,14 +75,6 @@ export default function TodayPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => ({
-      name: apiPlan.name,
-      days: apiPlan.days
-        .slice()
-        .sort((a, b) => a.dayIndex - b.dayIndex)
-        .map((d) => d.name),
-    });
-
     const loadActivePlan = async () => {
       setIsPlanLoading(true);
 
@@ -94,17 +83,14 @@ export default function TodayPage() {
         if (!cancelled) {
           if (!apiPlan) {
             setActivePlan(null);
-            setPlan(null);
           } else {
             setActivePlan(apiPlan);
-            setPlan(mapApiPlanToLocalPlan(apiPlan));
           }
         }
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load active plan", error);
           setActivePlan(null);
-          setPlan(null);
         }
       } finally {
         if (!cancelled) {
@@ -133,9 +119,9 @@ export default function TodayPage() {
 
   // Clamp dayId to the number of workouts in the plan
   useEffect(() => {
-    if (!plan) return;
+    if (!activePlan) return;
 
-    const max = plan.days.length;
+    const max = activePlan.days.length;
 
     if (dayId < 1) {
       setDayId(1);
@@ -147,12 +133,12 @@ export default function TodayPage() {
       setDayId(1);
       setCurrentDay(1);
     }
-  }, [plan, dayId]);
+  }, [activePlan, dayId]);
 
   // Read exercises for the "next workout" from backend active plan
   useEffect(() => {
     if (!activePlan) {
-      setDayItems(getDayExercises(dayId));
+      setDayItems([]);
       return;
     }
 
@@ -177,18 +163,19 @@ export default function TodayPage() {
   }, [activePlan, dayId]);
 
   const dayTitle = useMemo(() => {
-    if (!plan?.days?.length) return `Workout ${dayId}`;
-    return plan.days[dayId - 1] ?? `Workout ${dayId}`;
-  }, [plan, dayId]);
+    const day = activePlan?.days.find((d) => d.dayIndex === dayId);
+    return day?.name ?? `Workout ${dayId}`;
+  }, [activePlan, dayId]);
 
   const firstDayTitle = useMemo(() => {
-  if (!plan?.days?.length) return "Workout 1";
-  return plan.days[0] ?? "Workout 1";
-}, [plan]);
+  if (!activePlan?.days?.length) return "Workout 1";
+  const firstDay = [...activePlan.days].sort((a, b) => a.dayIndex - b.dayIndex)[0];
+  return firstDay?.name ?? "Workout 1";
+}, [activePlan]);
 
   // Calculate weekly stats
   const weeklyStats = useMemo(() => {
-    const totalDays = plan?.days?.length ?? 0;
+    const totalDays = activePlan?.days?.length ?? 0;
 
     const backendWeekIndexes = backendLogs
       .map((l) => l.weekIndex)
@@ -201,11 +188,7 @@ export default function TodayPage() {
 
     const streak = getWeeklyStreak();
 
-    const completionsThisWeek = getWeekCompletions().filter(
-      (c) => c.weekIndex === weekIndex
-    );
-
-    const uniqueCompletedDays = new Set(completionsThisWeek.map((c) => c.dayId));
+    const uniqueCompletedDays = new Set<number>();
 
     // Per-set logging can leave completion flags out-of-sync in some flows.
     // Derive completed workout days from backend logs for the current week.
@@ -327,7 +310,7 @@ export default function TodayPage() {
       progressPct,
       prCountThisWeek,
     };
-  }, [plan, activePlan, backendLogs]);
+  }, [activePlan, backendLogs]);
 
   // Reset plan (start over)
   const restartPlan = () => {
@@ -345,8 +328,8 @@ export default function TodayPage() {
     clearWeekCompletions();
 
     // Remove run state for all workouts
-    if (plan?.days?.length) {
-      for (let i = 1; i <= plan.days.length; i++) {
+    if (activePlan?.days?.length) {
+      for (let i = 1; i <= activePlan.days.length; i++) {
         clearRunState(i);
       }
     }
@@ -367,7 +350,7 @@ export default function TodayPage() {
     );
   }
 
-  if (!plan) {
+  if (!activePlan) {
     return (
       <div className="space-y-4">
         <header className="space-y-1">

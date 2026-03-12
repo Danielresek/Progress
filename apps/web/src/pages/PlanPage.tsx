@@ -4,17 +4,12 @@ import { EXERCISES } from "../data/exercises";
 import { PLAN_TEMPLATES, type PlanTemplate } from "../data/templates";
 import { useWorkoutApi } from "../api/useWorkoutApi";
 import type { CreatePlanRequest, PlanResponse } from "../api/workoutApi";
-import type { DayExercise, Plan } from "../types";
 import {
   clearCurrentDay,
   clearAllDayExercises,
   clearAllRunStates,
   clearPlan,
   clearPlanComplete,
-  clearRunState,
-  getPlan,
-  saveDayExercises,
-  savePlan,
   setCurrentDay,
 } from "../storage/planStorage";
 import { clearLogs } from "../storage/logStorage";
@@ -26,7 +21,7 @@ import {
 } from "../storage/statsStorage";
 
 export default function PlanPage() {
-  const [plan, setPlan] = useState<Plan | null>(null);
+  const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const { createPlan, getActivePlan, resetActivePlan } = useWorkoutApi();
 
@@ -39,20 +34,6 @@ export default function PlanPage() {
     const map = new Map<string, string>();
     for (const e of EXERCISES) map.set(e.id, e.name);
     return map;
-  }, []);
-
-  const mapApiPlanToLocalPlan = (apiPlan: PlanResponse): Plan => {
-    const orderedDays = [...apiPlan.days].sort((a, b) => a.dayIndex - b.dayIndex);
-
-    return {
-      name: apiPlan.name,
-      days: orderedDays.map((day) => day.name),
-    };
-  };
-
-  // Load plan from localStorage on mount
-  useEffect(() => {
-    setPlan(getPlan());
   }, []);
 
   // Load active plan from backend on mount
@@ -68,7 +49,7 @@ export default function PlanPage() {
           setPlan(null);
           return;
         }
-        setPlan(mapApiPlanToLocalPlan(activePlan));
+        setPlan(activePlan);
       })
       .catch((error) => {
         if (cancelled) return;
@@ -84,12 +65,6 @@ export default function PlanPage() {
       cancelled = true;
     };
   }, []);
-
-  // Persist plan to localStorage when it changes
-  useEffect(() => {
-    if (!plan) return;
-    savePlan(plan);
-  }, [plan]);
 
   if (isPlanLoading && !plan) {
     return (
@@ -132,36 +107,23 @@ export default function PlanPage() {
     const payload = createManualPayload(name, dayCount);
     const createdPlan = await createPlan(payload);
 
-    setPlan(mapApiPlanToLocalPlan(createdPlan));
+    setPlan(createdPlan);
 
     // When creating a new plan: start sequence at 1
     setCurrentDay(1);
     clearPlanComplete();
+    clearAllRunStates();
   };
 
   const createTemplatePlan = async (template: PlanTemplate) => {
     const payload = createTemplatePayload(template);
     const createdPlan = await createPlan(payload);
 
-    setPlan(mapApiPlanToLocalPlan(createdPlan));
-
-    createdPlan.days.forEach((day, i) => {
-      const dayItems: DayExercise[] = [...day.exercises]
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((x) => ({
-          exerciseId: x.exerciseId,
-          name: x.exerciseName,
-          sets: x.sets,
-          reps: x.reps,
-          startWeight: x.startWeight,
-        }));
-
-      saveDayExercises(i + 1, dayItems);
-      clearRunState(i + 1);
-    });
+    setPlan(createdPlan);
 
     setCurrentDay(1);
     clearPlanComplete();
+    clearAllRunStates();
   };
 
   const handleCreateManualPlan = () => {
@@ -308,13 +270,15 @@ export default function PlanPage() {
         </div>
 
         <div className="space-y-2">
-          {plan.days.map((day, index) => (
+          {[...plan.days]
+            .sort((a, b) => a.dayIndex - b.dayIndex)
+            .map((day, index) => (
             <Link
-              key={`${day}-${index}`}
+              key={`${day.id}-${index}`}
               to={`/plan/day/${index + 1}`}
               className="block w-full text-left rounded-xl bg-neutral-950 border border-neutral-800 px-4 py-3 active:scale-[0.99]"
             >
-              {day}
+              {day.name}
             </Link>
           ))}
         </div>
