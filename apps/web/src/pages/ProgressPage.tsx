@@ -105,6 +105,8 @@ export default function ProgressPage() {
     return {
       dayId: Number.isFinite(parsedDay) && parsedDay > 0 ? parsedDay : 1,
       exerciseId: log.exerciseId,
+      exerciseSessionId: log.exerciseSessionId,
+      setNumber: log.setNumber,
       performedWeight: log.performedWeight,
       performedReps: log.performedReps,
       timestamp: Number.isFinite(parsedTs) ? parsedTs : Date.now(),
@@ -200,31 +202,136 @@ export default function ProgressPage() {
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [allLogs, safeSelected]);
 
+  const sessionHistoryEntries = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        sessionKey: string;
+        sessionId: string;
+        exerciseId: string;
+        exerciseName: string;
+        timestamp: number;
+        sets: Array<{
+          timestamp: number;
+          setNumber: number;
+          performedWeight: number;
+          performedReps: number;
+        }>;
+      }
+    >();
+
+    for (const e of entries) {
+      const dayKey = new Date(e.timestamp).toDateString();
+      const rawSessionId =
+        typeof e.exerciseSessionId === "string" && e.exerciseSessionId.length > 0
+          ? e.exerciseSessionId
+          : `legacy:${e.timestamp}:${e.setNumber ?? 0}`;
+      const sessionKey = `${rawSessionId}:${dayKey}`;
+      const setNumber = Number.isFinite(e.setNumber) ? Number(e.setNumber) : 0;
+
+      if (!groups.has(sessionKey)) {
+        groups.set(sessionKey, {
+          sessionKey,
+          sessionId: rawSessionId,
+          exerciseId: e.exerciseId,
+          exerciseName: exerciseNameById.get(e.exerciseId) ?? e.exerciseId,
+          timestamp: e.timestamp,
+          sets: [],
+        });
+      }
+
+      const group = groups.get(sessionKey);
+      if (!group) continue;
+
+      group.sets.push({
+        timestamp: e.timestamp,
+        setNumber,
+        performedWeight: e.performedWeight,
+        performedReps: e.performedReps,
+      });
+
+      if (e.timestamp > group.timestamp) {
+        group.timestamp = e.timestamp;
+      }
+    }
+
+    return Array.from(groups.values())
+      .map((group) => {
+        const orderedSets = group.sets
+          .slice()
+          .sort((a, b) => {
+            const setDiff = a.setNumber - b.setNumber;
+            return setDiff !== 0 ? setDiff : a.timestamp - b.timestamp;
+          });
+
+        const bestSet = orderedSets.reduce(
+          (best, set) => {
+            if (!best) return set;
+            if (set.performedWeight > best.performedWeight) return set;
+            if (
+              set.performedWeight === best.performedWeight &&
+              set.performedReps > best.performedReps
+            ) {
+              return set;
+            }
+            return best;
+          },
+          null as
+            | {
+                timestamp: number;
+                setNumber: number;
+                performedWeight: number;
+                performedReps: number;
+              }
+            | null
+        );
+
+        const totalVolume = orderedSets.reduce(
+          (sum, set) => sum + volume(set.performedWeight, set.performedReps),
+          0
+        );
+
+        return {
+          sessionKey: group.sessionKey,
+          sessionId: group.sessionId,
+          exerciseId: group.exerciseId,
+          exerciseName: group.exerciseName,
+          timestamp: group.timestamp,
+          sets: orderedSets,
+          totalVolume,
+          bestSet,
+        };
+      })
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }, [entries, exerciseNameById]);
+
   // PR flags: only show PR on the log that actually set a new record
   const prFlags = useMemo(() => {
-    const chronological = entries
+    const chronological = sessionHistoryEntries
       .slice()
       .sort((a, b) => a.timestamp - b.timestamp); // oldest -> newest
 
     let bestW = 0;
     let bestR = 0;
 
-    const prWeightTs = new Set<number>();
-    const prRepsTs = new Set<number>();
+    const prWeightSessions = new Set<string>();
+    const prRepsSessions = new Set<string>();
 
     for (const e of chronological) {
-      if (e.performedWeight > bestW) {
-        bestW = e.performedWeight;
-        prWeightTs.add(e.timestamp);
+      if (!e.bestSet) continue;
+
+      if (e.bestSet.performedWeight > bestW) {
+        bestW = e.bestSet.performedWeight;
+        prWeightSessions.add(e.sessionKey);
       }
-      if (e.performedReps > bestR) {
-        bestR = e.performedReps;
-        prRepsTs.add(e.timestamp);
+      if (e.bestSet.performedReps > bestR) {
+        bestR = e.bestSet.performedReps;
+        prRepsSessions.add(e.sessionKey);
       }
     }
 
-    return { prWeightTs, prRepsTs };
-  }, [entries]);
+    return { prWeightSessions, prRepsSessions };
+  }, [sessionHistoryEntries]);
 
   const stats = useMemo(() => {
     if (!entries.length) {
@@ -480,40 +587,51 @@ export default function ProgressPage() {
             </div>
 
             <div className="text-xs text-neutral-600">
-              Showing {Math.min(entries.length, 20)} of {entries.length}
+              Showing {Math.min(sessionHistoryEntries.length, 20)} of {sessionHistoryEntries.length}
             </div>
           </div>
 
-          {entries.length === 0 ? (
+          {sessionHistoryEntries.length === 0 ? (
             <div className="text-neutral-400 text-sm">
               No logs yet for this exercise.
             </div>
           ) : (
             <div className="space-y-2">
-              {entries.slice(0, 20).map((e, idx) => {
-                const vol = e.performedWeight * e.performedReps;
-
-                const isBestWeight = prFlags.prWeightTs.has(e.timestamp);
-                const isBestReps = prFlags.prRepsTs.has(e.timestamp);
+              {sessionHistoryEntries.slice(0, 20).map((session) => {
+                const isBestWeight = prFlags.prWeightSessions.has(session.sessionKey);
+                const isBestReps = prFlags.prRepsSessions.has(session.sessionKey);
 
                 return (
                   <div
-                    key={e.timestamp + ":" + idx}
+                    key={session.sessionKey}
                     className="rounded-2xl border border-neutral-800 bg-neutral-950/60 px-4 py-3"
                   >
                     <div className="flex items-center justify-between">
-                      <div className="text-sm text-neutral-300">
-                        {formatDate(e.timestamp)}
+                      <div className="space-y-0.5">
+                        <div className="text-sm text-neutral-300">
+                          {formatDate(session.timestamp)}
+                        </div>
+                        <div className="text-xs text-neutral-500">{session.exerciseName}</div>
                       </div>
-                      <div className="text-sm font-semibold">
-                        {formatWeight(e.performedWeight)} kg ×{" "}
-                        {e.performedReps.toFixed(0)}
+                      <div className="text-xs text-neutral-600">
+                        {session.sets.length} {session.sets.length === 1 ? "set" : "sets"}
                       </div>
+                    </div>
+
+                    <div className="mt-2 space-y-1">
+                      {session.sets.map((set, index) => (
+                        <div
+                          key={`${session.sessionKey}:${set.setNumber}:${index}`}
+                          className="text-sm text-neutral-300"
+                        >
+                          Set {set.setNumber > 0 ? set.setNumber : index + 1} — {formatWeight(set.performedWeight)} kg x {set.performedReps.toFixed(0)}
+                        </div>
+                      ))}
                     </div>
 
                     <div className="mt-2 flex items-center justify-between">
                       <div className="text-xs text-neutral-600">
-                        Volume: {Number.isFinite(vol) ? vol.toFixed(0) : "0"}
+                        Volume: {Number.isFinite(session.totalVolume) ? session.totalVolume.toFixed(0) : "0"}
                       </div>
 
                       <div className="flex gap-2">
@@ -537,7 +655,7 @@ export default function ProgressPage() {
 
           <div className="mt-3 text-xs text-neutral-600">
             Tip: PR set is measured as{" "}
-            <span className="text-neutral-400">kg × reps</span> on a single logged set.
+            <span className="text-neutral-400">kg × reps</span> from the best set in each session.
           </div>
         </div>
       </div>
