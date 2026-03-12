@@ -172,6 +172,59 @@ export default function TodayPage() {
     );
 
     const uniqueCompletedDays = new Set(completionsThisWeek.map((c) => c.dayId));
+
+    // Per-set logging can leave completion flags out-of-sync in some flows.
+    // Derive completed workout days from logs for the current week as a fallback.
+    const logsThisWeek = getLogs().filter((l) => l.weekIndex === weekIndex);
+
+    if (activePlan?.days?.length) {
+      for (const day of activePlan.days) {
+        const dayLogs = logsThisWeek.filter((l) => l.dayId === day.dayIndex);
+        if (!dayLogs.length) continue;
+
+        const allExercisesCompleted = day.exercises.every((exercise) => {
+          const exerciseLogs = dayLogs.filter(
+            (l) => l.exerciseId === exercise.exerciseId
+          );
+          if (!exerciseLogs.length) return false;
+
+          const setsBySession = new Map<string, Set<number>>();
+
+          for (const log of exerciseLogs) {
+            const sessionId =
+              typeof log.exerciseSessionId === "string" && log.exerciseSessionId.length > 0
+                ? log.exerciseSessionId
+                : `legacy:${log.timestamp}`;
+
+            if (!setsBySession.has(sessionId)) {
+              setsBySession.set(sessionId, new Set<number>());
+            }
+
+            const sets = setsBySession.get(sessionId);
+            if (!sets) continue;
+
+            const setNumber =
+              typeof log.setNumber === "number" && Number.isFinite(log.setNumber)
+                ? log.setNumber
+                : sets.size + 1;
+
+            sets.add(setNumber);
+          }
+
+          const bestLoggedSetCount = Array.from(setsBySession.values()).reduce(
+            (max, sets) => Math.max(max, sets.size),
+            0
+          );
+
+          return bestLoggedSetCount >= Math.max(1, exercise.sets);
+        });
+
+        if (allExercisesCompleted) {
+          uniqueCompletedDays.add(day.dayIndex);
+        }
+      }
+    }
+
     const completedCount = uniqueCompletedDays.size;
     const remainingCount = Math.max(0, totalDays - completedCount);
 
@@ -238,7 +291,7 @@ export default function TodayPage() {
       progressPct,
       prCountThisWeek,
     };
-  }, [plan]);
+  }, [plan, activePlan]);
 
   // Reset plan (start over)
   const restartPlan = () => {
