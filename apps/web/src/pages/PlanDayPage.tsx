@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { EXERCISES, type Exercise } from "../data/exercises";
 import { useWorkoutApi } from "../api/useWorkoutApi";
+import { useActivePlan } from "../hooks/useActivePlan";
 import type { DayExercise, Plan } from "../types";
 import {
   getDayExercises,
@@ -13,6 +14,7 @@ import {
 export default function PlanDayPage() {
   const { dayId } = useParams();
   const { updateActivePlanDay } = useWorkoutApi();
+  const { plan: activePlan } = useActivePlan();
 
   const dayNumber = Number(dayId || "1");
 
@@ -56,6 +58,20 @@ export default function PlanDayPage() {
       startWeight: item.startWeight,
     }));
 
+  const mapApiDayToItems = (
+    day: NonNullable<typeof activePlan>["days"][number]
+  ): DayExercise[] => {
+    return [...day.exercises]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((exercise) => ({
+        exerciseId: exercise.exerciseId,
+        name: exercise.exerciseName,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        startWeight: exercise.startWeight,
+      }));
+  };
+
   // Persist to backend first, then local storage on success.
   const persist = (next: DayExercise[], titleOverride?: string) => {
     if (!hasDayId) return;
@@ -90,8 +106,16 @@ export default function PlanDayPage() {
       });
   };
 
-  // Load workout title from the plan (workouttracker.plan.v1)
+  // Load workout title: prefer backend active plan, fallback to local cache.
   useEffect(() => {
+    const activeDay = activePlan?.days.find((d) => d.dayIndex === dayNumber);
+
+    if (activeDay) {
+      const title = activeDay.name?.trim() || `Workout ${dayNumber}`;
+      setDayTitle(title);
+      return;
+    }
+
     const parsed = getPlan();
     if (!parsed) {
       setDayTitle(`Workout ${dayNumber}`);
@@ -104,7 +128,7 @@ export default function PlanDayPage() {
     } else {
       setDayTitle(`Workout ${dayNumber}`);
     }
-  }, [dayNumber]);
+  }, [dayNumber, activePlan]);
 
   // Save workout title in backend and mirror locally on success
   const saveDayTitle = (nextTitle: string) => {
@@ -113,9 +137,19 @@ export default function PlanDayPage() {
     persist(items, normalized);
   };
 
-  // Load from localStorage when page opens / dayId changes
+  // Hydrate exercises on page load/day change:
+  // 1) backend active plan (source of truth), 2) local fallback.
   useEffect(() => {
     if (!hasDayId) return;
+
+    const activeDay = activePlan?.days.find((d) => d.dayIndex === dayNumber);
+    if (activeDay) {
+      const backendItems = mapApiDayToItems(activeDay);
+      setItems(backendItems);
+      saveDayExercises(dayNumber, backendItems);
+      setSaveState("idle");
+      return;
+    }
 
     const parsed = getDayExercises(dayNumber);
     if (!parsed.length) {
@@ -126,7 +160,7 @@ export default function PlanDayPage() {
 
     setItems(parsed);
     setSaveState("idle");
-  }, [dayNumber, hasDayId]);
+  }, [dayNumber, hasDayId, activePlan]);
 
   // Clean up timeout when component unmounts
   useEffect(() => {
