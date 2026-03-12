@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
 import type { DayExercise, Plan } from "../types";
 import { useWorkoutApi } from "../api/useWorkoutApi";
-import type { PlanResponse } from "../api/workoutApi";
+import type { PlanResponse, WorkoutLogResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
@@ -12,7 +12,6 @@ import {
   isPlanComplete,
   setCurrentDay,
 } from "../storage/planStorage";
-import { getLogs } from "../storage/logStorage";
 import {
   clearWeekCompletions,
   getAndClearWeekDoneFlag,
@@ -25,10 +24,11 @@ import {
 
 export default function TodayPage() {
   const navigate = useNavigate();
-  const { getActivePlan } = useWorkoutApi();
+  const { getActivePlan, getLogs: getLogsRequest } = useWorkoutApi();
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
+  const [backendLogs, setBackendLogs] = useState<WorkoutLogResponse[]>([]);
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [dayId, setDayId] = useState<number>(1);
   const [dayItems, setDayItems] = useState<DayExercise[]>([]);
@@ -46,6 +46,32 @@ export default function TodayPage() {
         origin: { y: 0.6 },
       });
     }
+  }, []);
+
+  // 1b) Read workout logs from backend for weekly stats hydration
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLogs = async () => {
+      try {
+        const apiLogs = await getLogsRequest();
+        if (!cancelled) {
+          setBackendLogs(apiLogs);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load workout logs", error);
+          setBackendLogs([]);
+        }
+      }
+    };
+
+    loadLogs();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 1) Read active plan
@@ -164,7 +190,15 @@ export default function TodayPage() {
   const weeklyStats = useMemo(() => {
     const totalDays = plan?.days?.length ?? 0;
 
-    const weekIndex = getWeekIndex();
+    const backendWeekIndexes = backendLogs
+      .map((l) => l.weekIndex)
+      .filter((w): w is number => Number.isFinite(w));
+
+    const weekIndex =
+      backendWeekIndexes.length > 0
+        ? Math.max(getWeekIndex(), ...backendWeekIndexes)
+        : getWeekIndex();
+
     const streak = getWeeklyStreak();
 
     const completionsThisWeek = getWeekCompletions().filter(
@@ -174,12 +208,12 @@ export default function TodayPage() {
     const uniqueCompletedDays = new Set(completionsThisWeek.map((c) => c.dayId));
 
     // Per-set logging can leave completion flags out-of-sync in some flows.
-    // Derive completed workout days from logs for the current week as a fallback.
-    const logsThisWeek = getLogs().filter((l) => l.weekIndex === weekIndex);
+    // Derive completed workout days from backend logs for the current week.
+    const logsThisWeek = backendLogs.filter((l) => l.weekIndex === weekIndex);
 
     if (activePlan?.days?.length) {
       for (const day of activePlan.days) {
-        const dayLogs = logsThisWeek.filter((l) => l.dayId === day.dayIndex);
+        const dayLogs = logsThisWeek.filter((l) => l.planDayId === day.id);
         if (!dayLogs.length) continue;
 
         const allExercisesCompleted = day.exercises.every((exercise) => {
@@ -194,7 +228,9 @@ export default function TodayPage() {
             const sessionId =
               typeof log.exerciseSessionId === "string" && log.exerciseSessionId.length > 0
                 ? log.exerciseSessionId
-                : `legacy:${log.timestamp}`;
+                : "";
+
+            if (!sessionId) continue;
 
             if (!setsBySession.has(sessionId)) {
               setsBySession.set(sessionId, new Set<number>());
@@ -235,7 +271,7 @@ export default function TodayPage() {
     // - Weight PR: best performedWeight per exercise
     // - Reps PR: best performedReps per exercise
     // Counts how many exercises got a new PR (weight or reps) during "this week"
-    const logs = getLogs();
+    const logs = backendLogs;
 
     // Not in use right now
     // const logsThisWeek = logs.filter((l) => l.weekIndex === weekIndex);
@@ -291,7 +327,7 @@ export default function TodayPage() {
       progressPct,
       prCountThisWeek,
     };
-  }, [plan, activePlan]);
+  }, [plan, activePlan, backendLogs]);
 
   // Reset plan (start over)
   const restartPlan = () => {
