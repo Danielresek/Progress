@@ -3,29 +3,30 @@ import { Link, useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
 import type { DayExercise } from "../types";
 import { useWorkoutApi } from "../api/useWorkoutApi";
-import type { PlanResponse, WorkoutLogResponse } from "../api/workoutApi";
+import type { PlanResponse, WeeklyStatsResponse } from "../api/workoutApi";
 import {
   clearPlanComplete,
   clearRunState,
-  getCurrentDay,
   isPlanComplete,
-  setCurrentDay,
 } from "../storage/planStorage";
 import {
-  clearWeekCompletions,
   getAndClearWeekDoneFlag,
-  getWeekIndex,
-  getWeeklyStreak,
-  setWeekIndex,
-  setWeeklyStreak,
 } from "../storage/statsStorage";
 
 export default function TodayPage() {
   const navigate = useNavigate();
-  const { getActivePlan, getLogs: getLogsRequest } = useWorkoutApi();
+  const { getActivePlan, getWeeklyStats } = useWorkoutApi();
 
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
-  const [backendLogs, setBackendLogs] = useState<WorkoutLogResponse[]>([]);
+  const [weeklyStats, setWeeklyStats] = useState<WeeklyStatsResponse>({
+    currentDayIndex: 1,
+    weekIndex: 1,
+    streak: 0,
+    totalDays: 0,
+    completedCount: 0,
+    remainingCount: 0,
+    progressPct: 0,
+  });
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [dayId, setDayId] = useState<number>(1);
   const [dayItems, setDayItems] = useState<DayExercise[]>([]);
@@ -45,25 +46,24 @@ export default function TodayPage() {
     }
   }, []);
 
-  // 1b) Read workout logs from backend for weekly stats hydration
+  // 1b) Read weekly stats from backend
   useEffect(() => {
     let cancelled = false;
 
-    const loadLogs = async () => {
+    const loadWeeklyStats = async () => {
       try {
-        const apiLogs = await getLogsRequest();
+        const stats = await getWeeklyStats();
         if (!cancelled) {
-          setBackendLogs(apiLogs);
+          setWeeklyStats(stats);
         }
       } catch (error) {
         if (!cancelled) {
-          console.error("Failed to load workout logs", error);
-          setBackendLogs([]);
+          console.error("Failed to load weekly stats", error);
         }
       }
     };
 
-    loadLogs();
+    loadWeeklyStats();
 
     return () => {
       cancelled = true;
@@ -112,10 +112,10 @@ export default function TodayPage() {
     setPlanComplete(isPlanComplete());
   }, []);
 
-  // Read "next workout" (sequence)
+  // Read "next workout" from backend progression state.
   useEffect(() => {
-    setDayId(getCurrentDay());
-  }, []);
+    setDayId(Math.max(1, weeklyStats.currentDayIndex));
+  }, [weeklyStats.currentDayIndex]);
 
   // Clamp dayId to the number of workouts in the plan
   useEffect(() => {
@@ -125,13 +125,11 @@ export default function TodayPage() {
 
     if (dayId < 1) {
       setDayId(1);
-      setCurrentDay(1);
       return;
     }
 
     if (dayId > max) {
       setDayId(1);
-      setCurrentDay(1);
     }
   }, [activePlan, dayId]);
 
@@ -173,145 +171,6 @@ export default function TodayPage() {
   return firstDay?.name ?? "Workout 1";
 }, [activePlan]);
 
-  // Calculate weekly stats
-  const weeklyStats = useMemo(() => {
-    const totalDays = activePlan?.days?.length ?? 0;
-
-    const backendWeekIndexes = backendLogs
-      .map((l) => l.weekIndex)
-      .filter((w): w is number => Number.isFinite(w));
-
-    const weekIndex =
-      backendWeekIndexes.length > 0
-        ? Math.max(getWeekIndex(), ...backendWeekIndexes)
-        : getWeekIndex();
-
-    const streak = getWeeklyStreak();
-
-    const uniqueCompletedDays = new Set<number>();
-
-    // Per-set logging can leave completion flags out-of-sync in some flows.
-    // Derive completed workout days from backend logs for the current week.
-    const logsThisWeek = backendLogs.filter((l) => l.weekIndex === weekIndex);
-
-    if (activePlan?.days?.length) {
-      for (const day of activePlan.days) {
-        const dayLogs = logsThisWeek.filter((l) => l.planDayId === day.id);
-        if (!dayLogs.length) continue;
-
-        const allExercisesCompleted = day.exercises.every((exercise) => {
-          const exerciseLogs = dayLogs.filter(
-            (l) => l.exerciseId === exercise.exerciseId
-          );
-          if (!exerciseLogs.length) return false;
-
-          const setsBySession = new Map<string, Set<number>>();
-
-          for (const log of exerciseLogs) {
-            const sessionId =
-              typeof log.exerciseSessionId === "string" && log.exerciseSessionId.length > 0
-                ? log.exerciseSessionId
-                : "";
-
-            if (!sessionId) continue;
-
-            if (!setsBySession.has(sessionId)) {
-              setsBySession.set(sessionId, new Set<number>());
-            }
-
-            const sets = setsBySession.get(sessionId);
-            if (!sets) continue;
-
-            const setNumber =
-              typeof log.setNumber === "number" && Number.isFinite(log.setNumber)
-                ? log.setNumber
-                : sets.size + 1;
-
-            sets.add(setNumber);
-          }
-
-          const bestLoggedSetCount = Array.from(setsBySession.values()).reduce(
-            (max, sets) => Math.max(max, sets.size),
-            0
-          );
-
-          return bestLoggedSetCount >= Math.max(1, exercise.sets);
-        });
-
-        if (allExercisesCompleted) {
-          uniqueCompletedDays.add(day.dayIndex);
-        }
-      }
-    }
-
-    const completedCount = uniqueCompletedDays.size;
-    const remainingCount = Math.max(0, totalDays - completedCount);
-
-    const progressPct =
-      totalDays > 0 ? Math.round((completedCount / totalDays) * 100) : 0;
-
-    // PR this week: uses the same PR definition as ProgressPage:
-    // - Weight PR: best performedWeight per exercise
-    // - Reps PR: best performedReps per exercise
-    // Counts how many exercises got a new PR (weight or reps) during "this week"
-    const logs = backendLogs;
-
-    // Not in use right now
-    // const logsThisWeek = logs.filter((l) => l.weekIndex === weekIndex);
-
-    // Best all time per exercise (weight and reps)
-    const bestWeightByExercise = new Map<string, { value: number; week: number }>();
-    const bestRepsByExercise = new Map<string, { value: number; week: number }>();
-
-    for (const l of logs) {
-      // weight
-      const prevW = bestWeightByExercise.get(l.exerciseId);
-      if (!prevW || l.performedWeight > prevW.value) {
-        bestWeightByExercise.set(l.exerciseId, {
-          value: l.performedWeight,
-          week: l.weekIndex ?? -1,
-        });
-      }
-
-      // reps
-      const prevR = bestRepsByExercise.get(l.exerciseId);
-      if (!prevR || l.performedReps > prevR.value) {
-        bestRepsByExercise.set(l.exerciseId, {
-          value: l.performedReps,
-          week: l.weekIndex ?? -1,
-        });
-      }
-    }
-
-    // Count "PR this week" = exercises where PR (weight or reps) has week === weekIndex
-    let prCountThisWeek = 0;
-
-    const exercises = new Set<string>([
-      ...bestWeightByExercise.keys(),
-      ...bestRepsByExercise.keys(),
-    ]);
-
-    for (const exId of exercises) {
-      const w = bestWeightByExercise.get(exId);
-      const r = bestRepsByExercise.get(exId);
-
-      const weightPRThisWeek = w ? w.week === weekIndex : false;
-      const repsPRThisWeek = r ? r.week === weekIndex : false;
-
-      if (weightPRThisWeek || repsPRThisWeek) prCountThisWeek += 1;
-    }
-
-    return {
-      weekIndex,
-      streak,
-      totalDays,
-      completedCount,
-      remainingCount,
-      progressPct,
-      prCountThisWeek,
-    };
-  }, [activePlan, backendLogs]);
-
   // Reset plan (start over)
   const restartPlan = () => {
     const ok = window.confirm(
@@ -319,13 +178,7 @@ export default function TodayPage() {
     );
     if (!ok) return;
 
-    setCurrentDay(1);
     clearPlanComplete();
-
-    // Weekly stats reset
-    setWeekIndex(1);
-    setWeeklyStreak(0);
-    clearWeekCompletions();
 
     // Remove run state for all workouts
     if (activePlan?.days?.length) {

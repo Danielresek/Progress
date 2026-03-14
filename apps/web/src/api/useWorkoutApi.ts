@@ -1,16 +1,21 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import {
   createLog as createLogRequest,
+  completeWorkoutDay as completeWorkoutDayRequest,
   createPlan as createPlanRequest,
   getActivePlan as getActivePlanRequest,
   getLogs as getLogsRequest,
+  getWeeklyStats as getWeeklyStatsRequest,
   resetLogs as resetLogsRequest,
   resetActivePlan as resetActivePlanRequest,
   updateActivePlanDay as updateActivePlanDayRequest,
+  type CompleteWorkoutDayRequest,
+  type CompleteWorkoutDayResponse,
   type CreatePlanRequest,
   type CreateWorkoutLogRequest,
   type PlanResponse,
   type UpdatePlanDayRequest,
+  type WeeklyStatsResponse,
   type WorkoutLogResponse,
 } from "./workoutApi";
 
@@ -70,6 +75,18 @@ export function useWorkoutApi() {
     return createLogRequest(token, payload);
   }
 
+  async function getWeeklyStats(): Promise<WeeklyStatsResponse> {
+    const token = await getToken();
+    return getWeeklyStatsRequest(token);
+  }
+
+  async function completeWorkoutDay(
+    payload: CompleteWorkoutDayRequest
+  ): Promise<CompleteWorkoutDayResponse> {
+    const token = await getToken();
+    return completeWorkoutDayRequest(token, payload);
+  }
+
   return {
     getActivePlan,
     createPlan,
@@ -78,5 +95,7 @@ export function useWorkoutApi() {
     getLogs,
     resetLogs,
     createLog,
+    getWeeklyStats,
+    completeWorkoutDay,
   };
 }

@@ -7,17 +7,10 @@ import {
   clearPlanComplete,
   clearRunState,
   getRunIndex,
-  setCurrentDay,
   setRunIndex,
 } from "../storage/planStorage";
 import {
-  getWeekCompletions,
-  getWeekIndex,
-  getWeeklyStreak,
-  saveWeekCompletions,
   setWeekDoneFlag,
-  setWeekIndex,
-  setWeeklyStreak,
 } from "../storage/statsStorage";
 
 type CompletedSet = {
@@ -55,10 +48,17 @@ export default function TodayRunPage() {
   const navigate = useNavigate();
   const params = useParams();
   const dayId = Number(params.dayId || "1");
-  const { getActivePlan, getLogs: getLogsRequest, createLog } = useWorkoutApi();
+  const {
+    getActivePlan,
+    getLogs: getLogsRequest,
+    getWeeklyStats,
+    completeWorkoutDay,
+    createLog,
+  } = useWorkoutApi();
 
   const [activePlan, setActivePlan] = useState<PlanResponse | null>(null);
   const [backendLogs, setBackendLogs] = useState<WorkoutLogResponse[]>([]);
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(1);
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [items, setItems] = useState<DayExercise[]>([]);
   const [index, setIndex] = useState<number>(0);
@@ -93,6 +93,26 @@ export default function TodayRunPage() {
       .finally(() => {
         if (cancelled) return;
         setIsPlanLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load backend-owned week index for new set logs.
+  useEffect(() => {
+    let cancelled = false;
+
+    getWeeklyStats()
+      .then((stats) => {
+        if (cancelled) return;
+        setCurrentWeekIndex(stats.weekIndex);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load weekly stats", error);
       });
 
     return () => {
@@ -358,7 +378,7 @@ const bumpKg = (delta: number) => {
     }
 
     const nextSetNumber = currentSetIndex + 1;
-    const weekIndex = getWeekIndex();
+    const weekIndex = currentWeekIndex;
 
     // Save each set immediately. Backend sync remains best-effort.
     void saveLogToBackend({
@@ -420,47 +440,21 @@ const bumpKg = (delta: number) => {
   };
 
   // Save and close: advance to next workout (or loop to workout 1) and go back to Today
-  const saveAndClose = () => {
-    const totalDays = activePlan?.days?.length ?? 0;
+  const saveAndClose = async () => {
 
     // clear run state for this workout
     clearRunState(dayId);
 
-    // Weekly stats: register that this workout was completed in active week
-    const weekIndex = getWeekIndex();
-
-    const completions = getWeekCompletions();
-    const exists = completions.some(
-      (c) => c.weekIndex === weekIndex && c.dayId === dayId
-    );
-
-    if (!exists) {
-      completions.push({ weekIndex, dayId, completedAt: Date.now() });
-      saveWeekCompletions(completions);
-    }
-
     // IMPORTANT: ensure the "plan complete" view never triggers
     clearPlanComplete();
 
-    if (!totalDays) {
-      navigate("/today");
+    try {
+      const completion = await completeWorkoutDay({ dayIndex: dayId });
+      setWeekDoneFlag(completion.weekJustCompleted);
+    } catch (error) {
+      console.error("Failed to finalize workout day", error);
+      window.alert("Could not finalize workout right now. Please try again.");
       return;
-    }
-
-    const nextDay = dayId + 1;
-
-    if (nextDay > totalDays) {
-      // LOOP: new week starts
-      setCurrentDay(1);
-      setWeekDoneFlag(true); // toast on Today
-
-      const currentWeek = getWeekIndex();
-      setWeekIndex(currentWeek + 1);
-
-      const streak = getWeeklyStreak();
-      setWeeklyStreak(streak + 1);
-    } else {
-      setCurrentDay(nextDay);
     }
 
     navigate("/today");
@@ -509,7 +503,9 @@ const bumpKg = (delta: number) => {
         </header>
 
         <button
-          onClick={saveAndClose}
+          onClick={() => {
+            void saveAndClose();
+          }}
           className="w-full rounded-2xl bg-white text-black py-4 text-lg font-semibold active:scale-[0.99]"
         >
           Save and close

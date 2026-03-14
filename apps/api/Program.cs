@@ -254,8 +254,22 @@ app.MapPost("/api/plans/reset", async (AppDbContext db, ClaimsPrincipal user) =>
     {
         activePlan.IsActive = false;
         activePlan.UpdatedAtUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync();
     }
+
+    var progress = await db.UserProgressEntries
+        .Where(entry => entry.UserId == sub)
+        .OrderByDescending(entry => entry.UpdatedAtUtc)
+        .FirstOrDefaultAsync();
+
+    if (progress is not null)
+    {
+        progress.CurrentDayIndex = 1;
+        progress.CurrentWeekIndex = 1;
+        progress.WeeklyStreak = 0;
+        progress.UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    await db.SaveChangesAsync();
 
     return Results.Ok(new { success = true });
 })
@@ -280,6 +294,101 @@ app.MapGet("/api/logs", async (AppDbContext db, ClaimsPrincipal user) =>
         .ToList();
 
     return Results.Ok(response);
+})
+.RequireAuthorization();
+
+app.MapGet("/api/stats/weekly", async (AppDbContext db, ClaimsPrincipal user) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    var progress = await GetOrCreateUserProgressAsync(db, sub);
+
+    var activePlan = await db.Plans
+        .Include(p => p.Days)
+            .ThenInclude(d => d.Exercises)
+        .FirstOrDefaultAsync(p => p.UserId == sub && p.IsActive);
+
+    var response = await BuildWeeklyStatsResponseAsync(
+        db,
+        sub,
+        activePlan,
+        progress.CurrentDayIndex,
+        progress.CurrentWeekIndex,
+        progress.WeeklyStreak);
+    return Results.Ok(response);
+})
+.RequireAuthorization();
+
+app.MapPost("/api/stats/complete-day", async (
+    AppDbContext db,
+    ClaimsPrincipal user,
+    CompleteWorkoutDayRequest request) =>
+{
+    var sub =
+        user.FindFirst("sub")?.Value ??
+        user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(sub))
+        return Results.Unauthorized();
+
+    if (request.DayIndex < 1)
+        return Results.BadRequest(new { message = "Day index must be at least 1." });
+
+    var activePlan = await db.Plans
+        .Include(p => p.Days)
+            .ThenInclude(d => d.Exercises)
+        .FirstOrDefaultAsync(p => p.UserId == sub && p.IsActive);
+
+    if (activePlan is null)
+        return Results.NotFound(new { message = "No active plan found." });
+
+    var progress = await GetOrCreateUserProgressAsync(db, sub);
+
+    var orderedDays = activePlan.Days
+        .OrderBy(day => day.DayIndex)
+        .ToList();
+
+    var totalDays = orderedDays.Count;
+    var weekJustCompleted = false;
+    var nextDayIndex = 1;
+
+    if (totalDays > 0)
+    {
+        if (request.DayIndex >= totalDays)
+        {
+            nextDayIndex = 1;
+            progress.CurrentWeekIndex = Math.Max(1, progress.CurrentWeekIndex) + 1;
+            progress.WeeklyStreak = Math.Max(0, progress.WeeklyStreak) + 1;
+            weekJustCompleted = true;
+        }
+        else
+        {
+            nextDayIndex = request.DayIndex + 1;
+        }
+    }
+
+    progress.CurrentDayIndex = nextDayIndex;
+    progress.UpdatedAtUtc = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+
+    var weeklyStats = await BuildWeeklyStatsResponseAsync(
+        db,
+        sub,
+        activePlan,
+        progress.CurrentDayIndex,
+        progress.CurrentWeekIndex,
+        progress.WeeklyStreak);
+
+    return Results.Ok(new CompleteWorkoutDayResponse(
+        weekJustCompleted,
+        nextDayIndex,
+        weeklyStats));
 })
 .RequireAuthorization();
 
@@ -315,6 +424,9 @@ app.MapPost("/api/logs", async (AppDbContext db, ClaimsPrincipal user, CreateWor
     if (string.IsNullOrWhiteSpace(sub))
         return Results.Unauthorized();
 
+    var progress = await GetOrCreateUserProgressAsync(db, sub);
+    var activeWeekIndex = Math.Max(1, progress.CurrentWeekIndex);
+
     var log = new WorkoutLog
     {
         UserId = sub,
@@ -326,7 +438,7 @@ app.MapPost("/api/logs", async (AppDbContext db, ClaimsPrincipal user, CreateWor
         SetNumber = request.SetNumber,
         PerformedWeight = request.PerformedWeight,
         PerformedReps = request.PerformedReps,
-        WeekIndex = request.WeekIndex,
+        WeekIndex = activeWeekIndex,
         LoggedAtUtc = DateTime.UtcNow
     };
 
@@ -336,6 +448,131 @@ app.MapPost("/api/logs", async (AppDbContext db, ClaimsPrincipal user, CreateWor
     return Results.Created($"/api/logs/{log.Id}", WorkoutLogMappings.MapWorkoutLogResponse(log));
 })
 .RequireAuthorization();
+
+static async Task<UserProgress> GetOrCreateUserProgressAsync(AppDbContext db, string userId)
+{
+    var existing = await db.UserProgressEntries
+        .Where(progress => progress.UserId == userId)
+        .OrderByDescending(progress => progress.UpdatedAtUtc)
+        .FirstOrDefaultAsync();
+
+    if (existing is not null)
+    {
+        if (existing.CurrentWeekIndex < 1)
+            existing.CurrentWeekIndex = 1;
+
+        if (existing.CurrentDayIndex < 1)
+            existing.CurrentDayIndex = 1;
+
+        if (existing.WeeklyStreak < 0)
+            existing.WeeklyStreak = 0;
+
+        return existing;
+    }
+
+    var created = new UserProgress
+    {
+        UserId = userId,
+        CurrentDayIndex = 1,
+        CurrentWeekIndex = 1,
+        WeeklyStreak = 0,
+        UpdatedAtUtc = DateTime.UtcNow,
+    };
+
+    db.UserProgressEntries.Add(created);
+    await db.SaveChangesAsync();
+
+    return created;
+}
+
+static async Task<WeeklyStatsResponse> BuildWeeklyStatsResponseAsync(
+    AppDbContext db,
+    string userId,
+    Plan? activePlan,
+    int currentDayIndex,
+    int weekIndex,
+    int streak)
+{
+    var normalizedDay = Math.Max(1, currentDayIndex);
+    var normalizedWeek = Math.Max(1, weekIndex);
+    var normalizedStreak = Math.Max(0, streak);
+
+    if (activePlan is null)
+    {
+        return new WeeklyStatsResponse(normalizedDay, normalizedWeek, normalizedStreak, 0, 0, 0, 0);
+    }
+
+    var orderedDays = activePlan.Days
+        .OrderBy(day => day.DayIndex)
+        .ToList();
+
+    var totalDays = orderedDays.Count;
+    if (totalDays == 0)
+    {
+        return new WeeklyStatsResponse(1, normalizedWeek, normalizedStreak, 0, 0, 0, 0);
+    }
+
+    var effectiveCurrentDay = Math.Clamp(normalizedDay, 1, totalDays);
+
+    var dayIds = orderedDays.Select(day => day.Id).ToList();
+
+    var logsThisWeek = await db.WorkoutLogs
+        .Where(log =>
+            log.UserId == userId &&
+            log.WeekIndex == normalizedWeek &&
+            dayIds.Contains(log.PlanDayId))
+        .ToListAsync();
+
+    var completedCount = 0;
+
+    foreach (var day in orderedDays)
+    {
+        if (day.Exercises.Count == 0)
+            continue;
+
+        var dayLogs = logsThisWeek
+            .Where(log => log.PlanDayId == day.Id)
+            .ToList();
+
+        if (dayLogs.Count == 0)
+            continue;
+
+        var allExercisesCompleted = day.Exercises.All(exercise =>
+        {
+            var exerciseLogs = dayLogs
+                .Where(log =>
+                    log.ExerciseId == exercise.ExerciseId &&
+                    log.ExerciseSessionId != Guid.Empty)
+                .ToList();
+
+            if (exerciseLogs.Count == 0)
+                return false;
+
+            var bestLoggedSetCount = exerciseLogs
+                .GroupBy(log => log.ExerciseSessionId)
+                .Select(session => session.Select(log => log.SetNumber).Distinct().Count())
+                .DefaultIfEmpty(0)
+                .Max();
+
+            return bestLoggedSetCount >= Math.Max(1, exercise.Sets);
+        });
+
+        if (allExercisesCompleted)
+            completedCount += 1;
+    }
+
+    var remainingCount = Math.Max(0, totalDays - completedCount);
+    var progressPct = totalDays > 0 ? (int)Math.Round((double)completedCount * 100 / totalDays) : 0;
+
+    return new WeeklyStatsResponse(
+        effectiveCurrentDay,
+        normalizedWeek,
+        normalizedStreak,
+        totalDays,
+        completedCount,
+        remainingCount,
+        progressPct);
+}
 
 app.Run();
 

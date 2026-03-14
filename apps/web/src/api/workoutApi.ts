@@ -84,6 +84,26 @@ export type WorkoutLogResponse = {
   loggedAtUtc: string;
 };
 
+export type WeeklyStatsResponse = {
+  currentDayIndex: number;
+  weekIndex: number;
+  streak: number;
+  totalDays: number;
+  completedCount: number;
+  remainingCount: number;
+  progressPct: number;
+};
+
+export type CompleteWorkoutDayRequest = {
+  dayIndex: number;
+};
+
+export type CompleteWorkoutDayResponse = {
+  weekJustCompleted: boolean;
+  nextDayIndex: number;
+  weeklyStats: WeeklyStatsResponse;
+};
+
 export function getActivePlan(token: string): Promise<PlanResponse> {
   return apiFetch<PlanResponse>("/api/plans/active", token, {
     method: "GET",
@@ -134,6 +154,22 @@ export function createLog(
   payload: CreateWorkoutLogRequest
 ): Promise<WorkoutLogResponse> {
   return apiFetch<WorkoutLogResponse>("/api/logs", token, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWeeklyStats(token: string): Promise<WeeklyStatsResponse> {
+  return apiFetch<WeeklyStatsResponse>("/api/stats/weekly", token, {
+    method: "GET",
+  });
+}
+
+export function completeWorkoutDay(
+  token: string,
+  payload: CompleteWorkoutDayRequest
+): Promise<CompleteWorkoutDayResponse> {
+  return apiFetch<CompleteWorkoutDayResponse>("/api/stats/complete-day", token, {
     method: "POST",
     body: JSON.stringify(payload),
   });
